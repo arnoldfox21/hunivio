@@ -1,0 +1,77 @@
+# Miscellaneous & OS Files
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+Thumbs.db
+.atom/
+.buildlog/
+.history
+.svn/
+migrate_working_dir/
+
+# IDE & Editor Directories
+*.iml
+*.ipr
+*.iws
+.idea/
+.vscode/
+.cursor/
+.gemini/
+
+# Flutter / Dart / Pub
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+build/
+coverage/
+
+# Symbolication & Obfuscation
+app.*.symbols
+app.*.map.json
+
+# Android Build & Local Config
+/android/app/debug
+/android/app/profile
+/android/app/release
+/android/.gradle/
+/android/captures/
+/android/local.properties
+/android/gradlew
+/android/gradlew.bat
+/android/gradle/wrapper/gradle-wrapper.jar
+**/GeneratedPluginRegistrant.java
+
+# Android Signing & Credentials
+key.properties
+**/*.keystore
+**/*.jks
+android/app/google-oauth-client.json
+
+# iOS & macOS Build Artifacts
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/Flutter/App.framework
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Flutter.podspec
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/ephemeral/
+**/macos/Pods/
+**/macos/Flutter/ephemeral/
+**/DerivedData/
+**/xcuserdata/
+
+# Linux & Windows Ephemeral
+**/linux/flutter/ephemeral/
+**/windows/flutter/ephemeral/
+
+# Environment & Secrets
+.env
+.env.*
+*.pem
