@@ -45,5 +45,7 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>HuniGo membutuhkan akses lokasi untuk menampilkan kost di sekitar Anda dan memudahkan penentuan pin lokasi kost.</string>
 </dict>
 </plist>

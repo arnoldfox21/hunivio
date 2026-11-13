@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import '../models/user_profile.dart';
@@ -58,34 +59,47 @@ class AuthService {
     }
   }
 
-  static Future<GoogleAuthResult?> signInOrRegisterWithGoogle() async {
-    // Gunakan native Android Google Account Picker agar langsung mengambil
-    // data akun Google yang diklik tanpa terhalang ApiException: 10
+  static Future<GoogleAuthResult?> signInOrRegisterWithGoogle({
+    BuildContext? context,
+  }) async {
+    // Gunakan native Android Google Account Picker bawaan sistem agar semua akun tampil
+    // dan langsung memproses login tanpa terhalang ApiException: 10
     if (!kIsWeb && Platform.isAndroid) {
       try {
-        final nativeAccount = await _nativeGoogleChannel
+        final selectedAccount = await _nativeGoogleChannel
             .invokeMapMethod<String, dynamic>('pickGoogleAccount');
-        if (nativeAccount == null) {
+
+        if (selectedAccount == null) {
           // User membatalkan dialog pemilihan akun Google
           return null;
         }
 
-        final email = (nativeAccount['email'] ?? '').toString().trim();
-        final googleId = (nativeAccount['googleId'] ?? '').toString().trim();
-        final name = (nativeAccount['name'] ?? '').toString().trim();
-        final avatarUrl = (nativeAccount['avatarUrl'] ?? '').toString().trim();
+        final email = (selectedAccount['email'] ?? '').toString().trim();
+        final googleId = (selectedAccount['googleId'] ?? '').toString().trim();
+        final name = (selectedAccount['name'] ?? '').toString().trim();
+        final avatarUrl =
+            (selectedAccount['avatarUrl'] ?? '').toString().trim();
+        final accessToken =
+            (selectedAccount['accessToken'] ?? '').toString().trim();
 
         if (email.isEmpty) {
           return null;
         }
+
+        final resolvedName =
+            name.isNotEmpty ? name : _deriveNameFromEmail(email);
+        final resolvedAvatar = avatarUrl.isNotEmpty
+            ? avatarUrl
+            : _buildDefaultAvatarUrl(resolvedName);
 
         final result = await ApiService.loginOrRegisterWithGoogle(
           googleId: googleId.isNotEmpty
               ? googleId
               : 'google_${email.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_')}',
           email: email,
-          name: name.isNotEmpty ? name : _deriveNameFromEmail(email),
-          avatarUrl: avatarUrl,
+          name: resolvedName,
+          avatarUrl: resolvedAvatar,
+          accessToken: accessToken.isNotEmpty ? accessToken : null,
         );
 
         currentUserNotifier.value = result.user;
@@ -112,17 +126,29 @@ class AuthService {
       idToken = auth.idToken;
     } catch (_) {}
 
+    final fallbackName =
+        account.displayName ?? _deriveNameFromEmail(account.email);
+    final fallbackAvatar = (account.photoUrl != null &&
+            account.photoUrl!.trim().isNotEmpty)
+        ? account.photoUrl!.trim()
+        : _buildDefaultAvatarUrl(fallbackName);
+
     final result = await ApiService.loginOrRegisterWithGoogle(
       googleId: account.id,
       email: account.email,
-      name: account.displayName ?? _deriveNameFromEmail(account.email),
-      avatarUrl: account.photoUrl ?? '',
+      name: fallbackName,
+      avatarUrl: fallbackAvatar,
       accessToken: accessToken,
       idToken: idToken,
     );
 
     currentUserNotifier.value = result.user;
     return result;
+  }
+
+  static String _buildDefaultAvatarUrl(String name) {
+    final encoded = Uri.encodeComponent(name.trim().isNotEmpty ? name : 'User');
+    return 'https://ui-avatars.com/api/?name=$encoded&background=1BAA56&color=ffffff&size=256&bold=true&format=png';
   }
 
   static String _deriveNameFromEmail(String email) {
@@ -148,6 +174,11 @@ class AuthService {
     required String name,
     required String phone,
     required String role,
+    String? username,
+    String? bio,
+    String? city,
+    String? avatarUrl,
+    String? coverUrl,
   }) async {
     final user = currentUserNotifier.value;
     if (user == null) {
@@ -158,6 +189,11 @@ class AuthService {
       name: name,
       phone: phone,
       role: role,
+      username: username,
+      bio: bio,
+      city: city,
+      avatarUrl: avatarUrl,
+      coverUrl: coverUrl,
     );
     currentUserNotifier.value = updated;
     return updated;

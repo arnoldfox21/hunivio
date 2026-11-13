@@ -75,10 +75,12 @@ Seluruh komunikasi ke backend dikelola di `lib/services/api_service.dart` menggu
    - Pastikan setiap pemanggilan async di `StatefulWidget` memeriksa `if (!mounted) return;` sebelum memanggil `setState()` atau menggunakan `BuildContext`.
 3. **Autentikasi Android**:
    - Pada Android, `AuthService.signInOrRegisterWithGoogle()` memprioritaskan pemanggilan native account picker melalui `MethodChannel('com.hunigo.app/google_auth')` (`pickGoogleAccount`) di `MainActivity.kt` untuk menghindari kendala `ApiException: 10`, dengan fallback ke paket `google_sign_in`. Jangan menghapus channel ini di `MainActivity.kt`.
-4. **Keamanan & Git**:
+4. **Pengujian & Efisiensi Waktu**:
+   - **JANGAN melakukan test atau proses inspeksi/verifikasi yang membutuhkan waktu terlalu lama** (hindari *long-running test*, pemindaian berulang di perangkat, atau proses *polling* yang memakan waktu).
+   - Utamakan verifikasi cepat seperti `flutter analyze` atau pengecekan langsung yang ringan dan efisien.
+5. **Keamanan & Git**:
    - Jangan pernah melakukan commit folder hasil build (`build/`, `.dart_tool/`, `.gradle/`), konfigurasi IDE (`.idea/`, `.vscode/`), maupun file kredensial/keystore (`*.jks`, `*.keystore`, `key.properties`, `.env*`, `google-oauth-client.json`).
-5. **Perintah Penting**:
+6. **Perintah Penting**:
    - Install dependensi: `flutter pub get`
    - Analisis kode / linter: `flutter analyze`
-   - Menjalankan pengujian: `flutter test`
    - Menjalankan aplikasi: `flutter run`

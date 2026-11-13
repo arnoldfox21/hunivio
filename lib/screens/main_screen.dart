@@ -1,13 +1,19 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:latlong2/latlong.dart';
 import '../models/kost.dart';
 import '../models/booking.dart';
 import '../models/user_profile.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
+import '../services/mapbox_service.dart';
 import '../utils/formatters.dart';
 import '../widgets/kost_card.dart';
+import '../widgets/kost_map_search_view.dart';
 import 'auth_profile_tab.dart';
 import 'kost_detail_screen.dart';
+import 'kost_location_picker_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -25,6 +31,7 @@ class _MainScreenState extends State<MainScreen> {
   String _selectedType = 'Semua';
   String? _selectedFacility;
   String _sortBy = 'recommended';
+  bool _isMapMode = false;
 
   // Data (Dynamic from PostgreSQL DB)
   List<Kost> _kosts = [];
@@ -158,6 +165,18 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void _showCreateKostSheet() {
+    final currentUser = AuthService.currentUser;
+    if (currentUser == null || !currentUser.canManageKost) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Fitur Tambah Kost hanya tersedia untuk Administrator dan Pemilik Kost.',
+          ),
+        ),
+      );
+      return;
+    }
+
     final formKey = GlobalKey<FormState>();
     final nameCtrl = TextEditingController();
     final cityCtrl = TextEditingController();
@@ -167,17 +186,22 @@ class _MainScreenState extends State<MainScreen> {
     final priceCtrl = TextEditingController();
     final roomsCtrl = TextEditingController(text: '5');
     final roomSizeCtrl = TextEditingController(text: '3 x 4 m');
-    final ownerNameCtrl = TextEditingController();
-    final ownerPhoneCtrl = TextEditingController();
+    final ownerNameCtrl = TextEditingController(text: currentUser.name);
+    final ownerPhoneCtrl = TextEditingController(text: currentUser.phone);
     final descCtrl = TextEditingController();
     final imageCtrl = TextEditingController();
     final facilitiesCtrl = TextEditingController();
     final publicFacilitiesCtrl = TextEditingController();
     final rulesCtrl = TextEditingController();
+    final imagePicker = ImagePicker();
+    final List<XFile> pickedImages = [];
+    final List<String> imageUrls = [];
     String selectedType = 'Campur';
     bool electricityIncluded = false;
     bool isSinggahsini = true;
     bool submitting = false;
+    LatLng? pickedLocation;
+    bool loadingCurrentGps = false;
 
     showModalBottomSheet(
       context: context,
@@ -205,7 +229,7 @@ class _MainScreenState extends State<MainScreen> {
                     children: [
                       const Expanded(
                         child: Text(
-                          'Tambah Data Kost ke Database',
+                          'Tambah Kost Baru',
                           style: TextStyle(
                             fontSize: 17,
                             fontWeight: FontWeight.w800,
@@ -327,6 +351,152 @@ class _MainScreenState extends State<MainScreen> {
                     ),
                   ),
                   const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.lightGreenBg.withOpacity(0.45),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: AppColors.primaryGreen.withOpacity(0.35),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.pin_drop_rounded,
+                              size: 18,
+                              color: AppColors.primaryGreen,
+                            ),
+                            const SizedBox(width: 6),
+                            const Expanded(
+                              child: Text(
+                                'Pin Lokasi Kost di Peta',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13.5,
+                                ),
+                              ),
+                            ),
+                            if (pickedLocation != null)
+                              GestureDetector(
+                                onTap: () => setModalState(
+                                  () => pickedLocation = null,
+                                ),
+                                child: Text(
+                                  'Hapus',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.red.shade700,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          pickedLocation != null
+                              ? 'Koordinat terpilih: ${pickedLocation!.latitude.toStringAsFixed(6)}, ${pickedLocation!.longitude.toStringAsFixed(6)}'
+                              : 'Belum ada pin lokasi. Tandai agar kost muncul di pencarian peta.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: pickedLocation != null
+                                ? AppColors.darkGreen
+                                : Colors.grey.shade700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () async {
+                                  final result =
+                                      await Navigator.of(ctx).push<LatLng>(
+                                    MaterialPageRoute(
+                                      builder: (_) => KostLocationPickerScreen(
+                                        initialLocation: pickedLocation,
+                                      ),
+                                    ),
+                                  );
+                                  if (result != null) {
+                                    setModalState(
+                                      () => pickedLocation = result,
+                                    );
+                                  }
+                                },
+                                icon: const Icon(
+                                  Icons.map_outlined,
+                                  size: 17,
+                                ),
+                                label: Text(
+                                  pickedLocation != null
+                                      ? 'Ubah Pin'
+                                      : 'Pilih di Peta',
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: AppColors.primaryGreen,
+                                  side: const BorderSide(
+                                    color: AppColors.primaryGreen,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: loadingCurrentGps
+                                    ? null
+                                    : () async {
+                                        setModalState(
+                                          () => loadingCurrentGps = true,
+                                        );
+                                        final res = await LocationHelper
+                                            .getCurrentLocation();
+                                        setModalState(() {
+                                          loadingCurrentGps = false;
+                                          if (res.isUserLocation) {
+                                            pickedLocation = res.location;
+                                          }
+                                        });
+                                        if (res.message != null && ctx.mounted) {
+                                          ScaffoldMessenger.of(ctx)
+                                              .showSnackBar(
+                                            SnackBar(
+                                              content: Text(res.message!),
+                                            ),
+                                          );
+                                        }
+                                      },
+                                icon: loadingCurrentGps
+                                    ? const SizedBox(
+                                        width: 14,
+                                        height: 14,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Icon(
+                                        Icons.my_location_rounded,
+                                        size: 17,
+                                      ),
+                                label: const Text('Lokasi Saya'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.primaryGreen,
+                                  foregroundColor: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                   Row(
                     children: [
                       Expanded(
@@ -401,13 +571,200 @@ class _MainScreenState extends State<MainScreen> {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  TextFormField(
-                    controller: imageCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'URL Foto Kost',
-                      border: OutlineInputBorder(),
+                  const Text(
+                    'Foto Kost',
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF111827),
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: submitting
+                              ? null
+                              : () async {
+                                  final files =
+                                      await imagePicker.pickMultiImage(
+                                    imageQuality: 80,
+                                    maxWidth: 1280,
+                                  );
+                                  if (files.isNotEmpty) {
+                                    setModalState(() {
+                                      pickedImages.addAll(files);
+                                    });
+                                  }
+                                },
+                          icon: const Icon(Icons.photo_library_outlined),
+                          label: const Text('Galeri'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: submitting
+                              ? null
+                              : () async {
+                                  final file = await imagePicker.pickImage(
+                                    source: ImageSource.camera,
+                                    imageQuality: 80,
+                                    maxWidth: 1280,
+                                  );
+                                  if (file != null) {
+                                    setModalState(() {
+                                      pickedImages.add(file);
+                                    });
+                                  }
+                                },
+                          icon: const Icon(Icons.camera_alt_outlined),
+                          label: const Text('Kamera'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: imageCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Atau tambah URL Foto Kost',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton.filled(
+                        style: IconButton.styleFrom(
+                          backgroundColor: AppColors.primaryGreen,
+                          foregroundColor: Colors.white,
+                        ),
+                        tooltip: 'Tambah URL Foto',
+                        onPressed: submitting
+                            ? null
+                            : () {
+                                final url = imageCtrl.text.trim();
+                                if (url.isNotEmpty &&
+                                    !imageUrls.contains(url)) {
+                                  setModalState(() {
+                                    imageUrls.add(url);
+                                    imageCtrl.clear();
+                                  });
+                                }
+                              },
+                        icon: const Icon(Icons.add_rounded),
+                      ),
+                    ],
+                  ),
+                  if (pickedImages.isNotEmpty || imageUrls.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      height: 86,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        children: [
+                          ...pickedImages.asMap().entries.map((entry) {
+                            final idx = entry.key;
+                            final file = entry.value;
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: Stack(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: Image.file(
+                                      File(file.path),
+                                      width: 86,
+                                      height: 86,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                  Positioned(
+                                    top: 4,
+                                    right: 4,
+                                    child: GestureDetector(
+                                      onTap: submitting
+                                          ? null
+                                          : () => setModalState(
+                                              () => pickedImages.removeAt(idx),
+                                            ),
+                                      child: Container(
+                                        padding: const EdgeInsets.all(2),
+                                        decoration: const BoxDecoration(
+                                          color: Colors.black54,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          Icons.close,
+                                          size: 14,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                          ...imageUrls.asMap().entries.map((entry) {
+                            final idx = entry.key;
+                            final url = entry.value;
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: Stack(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: Image.network(
+                                      url,
+                                      width: 86,
+                                      height: 86,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => Container(
+                                        width: 86,
+                                        height: 86,
+                                        color: Colors.grey.shade200,
+                                        child: const Icon(
+                                          Icons.broken_image_outlined,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  Positioned(
+                                    top: 4,
+                                    right: 4,
+                                    child: GestureDetector(
+                                      onTap: submitting
+                                          ? null
+                                          : () => setModalState(
+                                              () => imageUrls.removeAt(idx),
+                                            ),
+                                      child: Container(
+                                        padding: const EdgeInsets.all(2),
+                                        decoration: const BoxDecoration(
+                                          color: Colors.black54,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          Icons.close,
+                                          size: 14,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 10),
                   TextFormField(
                     controller: descCtrl,
@@ -467,6 +824,21 @@ class _MainScreenState extends State<MainScreen> {
                                     .toList();
                                 final rooms =
                                     int.tryParse(roomsCtrl.text.trim()) ?? 1;
+                                final List<String> finalImages = [
+                                  ...imageUrls,
+                                ];
+                                final typedUrl = imageCtrl.text.trim();
+                                if (typedUrl.isNotEmpty &&
+                                    !finalImages.contains(typedUrl)) {
+                                  finalImages.add(typedUrl);
+                                }
+                                for (final picked in pickedImages) {
+                                  final uploadedUrl =
+                                      await ApiService.uploadKostImage(
+                                    File(picked.path),
+                                  );
+                                  finalImages.add(uploadedUrl);
+                                }
                                 await ApiService.createKost({
                                   'name': nameCtrl.text.trim(),
                                   'type': selectedType,
@@ -486,11 +858,13 @@ class _MainScreenState extends State<MainScreen> {
                                   'roomFacilities': facilities,
                                   'publicFacilities': publicFacilities,
                                   'rules': rules,
-                                  'images': imageCtrl.text.trim().isNotEmpty
-                                      ? [imageCtrl.text.trim()]
-                                      : [],
+                                  'images': finalImages,
                                   'ownerName': ownerNameCtrl.text.trim(),
                                   'ownerPhone': ownerPhoneCtrl.text.trim(),
+                                  if (pickedLocation != null)
+                                    'latitude': pickedLocation!.latitude,
+                                  if (pickedLocation != null)
+                                    'longitude': pickedLocation!.longitude,
                                 });
                                 if (!mounted) return;
                                 navigator.pop();
@@ -499,7 +873,7 @@ class _MainScreenState extends State<MainScreen> {
                                   const SnackBar(
                                     backgroundColor: AppColors.primaryGreen,
                                     content: Text(
-                                      'Kost baru berhasil disimpan ke PostgreSQL!',
+                                      'Kost baru berhasil ditambahkan!',
                                     ),
                                   ),
                                 );
@@ -524,7 +898,7 @@ class _MainScreenState extends State<MainScreen> {
                               ),
                             )
                           : const Text(
-                              'Simpan ke Database',
+                              'Simpan Kost',
                               style: TextStyle(fontWeight: FontWeight.w700),
                             ),
                     ),
@@ -539,6 +913,155 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+  void _showApiEndpointDialog() {
+    String selectedUrl = ApiService.baseUrl;
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+              title: const Row(
+                children: [
+                  Icon(
+                    Icons.dns_outlined,
+                    color: AppColors.primaryGreen,
+                    size: 22,
+                  ),
+                  SizedBox(width: 10),
+                  Text(
+                    'Endpoint API',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildEndpointOption(
+                    title: 'Lokal (Saat Ini)',
+                    subtitle: ApiService.localBaseUrl,
+                    selected: selectedUrl == ApiService.localBaseUrl,
+                    onTap: () => setDialogState(
+                      () => selectedUrl = ApiService.localBaseUrl,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  _buildEndpointOption(
+                    title: 'Online (Vercel)',
+                    subtitle: ApiService.onlineBaseUrl,
+                    selected: selectedUrl == ApiService.onlineBaseUrl,
+                    onTap: () => setDialogState(
+                      () => selectedUrl = ApiService.onlineBaseUrl,
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Batal'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primaryGreen,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  onPressed: () {
+                    final changed = selectedUrl != ApiService.baseUrl;
+                    ApiService.setBaseUrl(selectedUrl);
+                    Navigator.of(dialogContext).pop();
+                    if (changed) {
+                      _loadKosts();
+                      _loadBookings();
+                    }
+                    final label = ApiService.isOnline
+                        ? 'Online (hunigo-api.vercel.app)'
+                        : 'Lokal (192.168.18.12:3001)';
+                    ScaffoldMessenger.of(this.context).showSnackBar(
+                      SnackBar(
+                        backgroundColor: AppColors.primaryGreen,
+                        content: Text('Endpoint API aktif: $label'),
+                      ),
+                    );
+                  },
+                  child: const Text('Terapkan'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildEndpointOption({
+    required String title,
+    required String subtitle,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.lightGreenBg : const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected ? AppColors.primaryGreen : Colors.grey.shade300,
+            width: selected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              selected
+                  ? Icons.radio_button_checked_rounded
+                  : Icons.radio_button_off_rounded,
+              color: selected ? AppColors.primaryGreen : Colors.grey,
+              size: 20,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13.5,
+                      color: selected ? AppColors.darkGreen : Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -547,8 +1070,11 @@ class _MainScreenState extends State<MainScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
         scrolledUnderElevation: 1,
-        title: Row(
-          children: [
+        title: GestureDetector(
+          onLongPress: _showApiEndpointDialog,
+          behavior: HitTestBehavior.opaque,
+          child: Row(
+            children: [
             Container(
               padding: const EdgeInsets.all(7),
               decoration: BoxDecoration(
@@ -584,20 +1110,37 @@ class _MainScreenState extends State<MainScreen> {
                 ),
               ],
             ),
-          ],
+            ],
+          ),
         ),
         actions: [
-          IconButton(
-            tooltip: 'Tambah Data Kost ke DB',
-            onPressed: _showCreateKostSheet,
-            icon: const Icon(
-              Icons.add_circle_outline_rounded,
-              color: AppColors.primaryGreen,
-            ),
+          ValueListenableBuilder<UserProfile?>(
+            valueListenable: AuthService.currentUserNotifier,
+            builder: (context, user, _) {
+              if (user == null || !user.canManageKost) {
+                return const SizedBox.shrink();
+              }
+              return IconButton(
+                tooltip: 'Tambah Kost',
+                onPressed: _showCreateKostSheet,
+                icon: const Icon(
+                  Icons.add_circle_outline_rounded,
+                  color: AppColors.primaryGreen,
+                ),
+              );
+            },
           ),
           ValueListenableBuilder<UserProfile?>(
             valueListenable: AuthService.currentUserNotifier,
             builder: (context, user, _) {
+              final fallbackAvatar = user != null
+                  ? 'https://ui-avatars.com/api/?name=${Uri.encodeComponent(user.name.isNotEmpty ? user.name : 'User')}&background=1BAA56&color=ffffff&size=128&bold=true&format=png'
+                  : '';
+              final avatarUrl = user != null
+                  ? (user.avatarUrl.trim().isNotEmpty
+                      ? user.avatarUrl.trim()
+                      : fallbackAvatar)
+                  : '';
               return IconButton(
                 tooltip: user != null
                     ? 'Akun: ${user.name}'
@@ -605,18 +1148,44 @@ class _MainScreenState extends State<MainScreen> {
                 onPressed: () {
                   setState(() => _selectedTabIndex = 3);
                 },
-                icon: user != null && user.avatarUrl.isNotEmpty
-                    ? CircleAvatar(
-                        radius: 14,
-                        backgroundImage: NetworkImage(user.avatarUrl),
+                icon: user != null
+                    ? Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: AppColors.lightGreenBg,
+                          border: Border.all(
+                            color: AppColors.primaryGreen.withOpacity(0.3),
+                            width: 1.5,
+                          ),
+                        ),
+                        child: ClipOval(
+                          child: Image.network(
+                            avatarUrl,
+                            width: 28,
+                            height: 28,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Center(
+                                child: Text(
+                                  user.name.isNotEmpty
+                                      ? user.name[0].toUpperCase()
+                                      : 'U',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.primaryGreen,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
                       )
-                    : Icon(
-                        user != null
-                            ? Icons.account_circle_rounded
-                            : Icons.account_circle_outlined,
-                        color: user != null
-                            ? AppColors.primaryGreen
-                            : Colors.blueGrey,
+                    : const Icon(
+                        Icons.account_circle_outlined,
+                        color: Colors.blueGrey,
                       ),
               );
             },
@@ -695,7 +1264,217 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+  Widget _buildTopSearchFilterPanel() {
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Search Bar + Map/List Toggle
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _searchCtrl,
+                  onSubmitted: (_) => _loadKosts(),
+                  decoration: InputDecoration(
+                    hintText: 'Masukkan nama kost, kampus, atau area...',
+                    hintStyle: TextStyle(
+                      color: Colors.grey.shade500,
+                      fontSize: 13.5,
+                    ),
+                    prefixIcon: const Icon(
+                      Icons.search_rounded,
+                      color: AppColors.primaryGreen,
+                    ),
+                    suffixIcon: _searchCtrl.text.isNotEmpty
+                        ? IconButton(
+                            onPressed: () {
+                              _searchCtrl.clear();
+                              _loadKosts();
+                            },
+                            icon: const Icon(Icons.clear, size: 18),
+                          )
+                        : IconButton(
+                            onPressed: _loadKosts,
+                            icon: const Icon(
+                              Icons.arrow_forward_rounded,
+                              size: 18,
+                              color: AppColors.primaryGreen,
+                            ),
+                          ),
+                    filled: true,
+                    fillColor: Colors.grey.shade100,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Material(
+                color: _isMapMode
+                    ? AppColors.primaryGreen
+                    : AppColors.lightGreenBg,
+                borderRadius: BorderRadius.circular(12),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () {
+                    setState(() => _isMapMode = !_isMapMode);
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _isMapMode
+                              ? Icons.view_list_rounded
+                              : Icons.map_rounded,
+                          size: 19,
+                          color: _isMapMode
+                              ? Colors.white
+                              : AppColors.darkGreen,
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          _isMapMode ? 'Daftar' : 'Peta',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: _isMapMode
+                                ? Colors.white
+                                : AppColors.darkGreen,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // City Horizontal Chips
+          SizedBox(
+            height: 36,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: _cities.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (context, idx) {
+                final city = _cities[idx];
+                final selected = _selectedCity == city;
+                return ChoiceChip(
+                  label: Text(city),
+                  selected: selected,
+                  selectedColor: AppColors.primaryGreen,
+                  backgroundColor: Colors.grey.shade100,
+                  labelStyle: TextStyle(
+                    color: selected ? Colors.white : Colors.black87,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    fontSize: 12.5,
+                  ),
+                  onSelected: (_) {
+                    setState(() => _selectedCity = city);
+                    _loadKosts();
+                  },
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Kost Type + Facility + Sort Row
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                // Gender Type Segmented Pills
+                ..._kostTypes.map((type) {
+                  final isSelected = _selectedType == type;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: FilterChip(
+                      label: Text(
+                        type == 'Semua' ? 'Semua Tipe' : 'Kost $type',
+                      ),
+                      selected: isSelected,
+                      selectedColor: AppColors.lightGreenBg,
+                      checkmarkColor: AppColors.primaryGreen,
+                      labelStyle: TextStyle(
+                        color: isSelected
+                            ? AppColors.darkGreen
+                            : Colors.grey.shade800,
+                        fontWeight:
+                            isSelected ? FontWeight.w700 : FontWeight.w500,
+                        fontSize: 12,
+                      ),
+                      onSelected: (_) {
+                        setState(() => _selectedType = type);
+                        _loadKosts();
+                      },
+                    ),
+                  );
+                }),
+                const SizedBox(width: 4),
+                // Facility chips
+                ..._facilityChips.map((fac) {
+                  final isSelected = _selectedFacility == fac;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: FilterChip(
+                      label: Text(fac),
+                      selected: isSelected,
+                      selectedColor: AppColors.lightGreenBg,
+                      checkmarkColor: AppColors.primaryGreen,
+                      labelStyle: TextStyle(
+                        color: isSelected
+                            ? AppColors.darkGreen
+                            : Colors.grey.shade700,
+                        fontWeight:
+                            isSelected ? FontWeight.w700 : FontWeight.w500,
+                        fontSize: 12,
+                      ),
+                      onSelected: (_) {
+                        setState(() {
+                          _selectedFacility = isSelected ? null : fac;
+                        });
+                        _loadKosts();
+                      },
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildExploreTab() {
+    if (_isMapMode) {
+      return Column(
+        children: [
+          _buildTopSearchFilterPanel(),
+          Expanded(
+            child: KostMapSearchView(
+              kosts: _kosts,
+              onOpenDetail: _openKostDetail,
+            ),
+          ),
+        ],
+      );
+    }
+
     return RefreshIndicator(
       color: AppColors.primaryGreen,
       onRefresh: _loadKosts,
@@ -703,152 +1482,7 @@ class _MainScreenState extends State<MainScreen> {
         slivers: [
           // Top Search & Filter Panel
           SliverToBoxAdapter(
-            child: Container(
-              color: Colors.white,
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Search Bar
-                  TextField(
-                    controller: _searchCtrl,
-                    onSubmitted: (_) => _loadKosts(),
-                    decoration: InputDecoration(
-                      hintText: 'Masukkan nama kost, kampus, atau area...',
-                      hintStyle: TextStyle(
-                        color: Colors.grey.shade500,
-                        fontSize: 13.5,
-                      ),
-                      prefixIcon: const Icon(
-                        Icons.search_rounded,
-                        color: AppColors.primaryGreen,
-                      ),
-                      suffixIcon: _searchCtrl.text.isNotEmpty
-                          ? IconButton(
-                              onPressed: () {
-                                _searchCtrl.clear();
-                                _loadKosts();
-                              },
-                              icon: const Icon(Icons.clear, size: 18),
-                            )
-                          : IconButton(
-                              onPressed: _loadKosts,
-                              icon: const Icon(
-                                Icons.arrow_forward_rounded,
-                                size: 18,
-                                color: AppColors.primaryGreen,
-                              ),
-                            ),
-                      filled: true,
-                      fillColor: Colors.grey.shade100,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // City Horizontal Chips
-                  SizedBox(
-                    height: 36,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: _cities.length,
-                      separatorBuilder: (_, __) => const SizedBox(width: 8),
-                      itemBuilder: (context, idx) {
-                        final city = _cities[idx];
-                        final selected = _selectedCity == city;
-                        return ChoiceChip(
-                          label: Text(city),
-                          selected: selected,
-                          selectedColor: AppColors.primaryGreen,
-                          backgroundColor: Colors.grey.shade100,
-                          labelStyle: TextStyle(
-                            color: selected ? Colors.white : Colors.black87,
-                            fontWeight:
-                                selected ? FontWeight.w700 : FontWeight.w500,
-                            fontSize: 12.5,
-                          ),
-                          onSelected: (_) {
-                            setState(() => _selectedCity = city);
-                            _loadKosts();
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-
-                  // Kost Type + Facility + Sort Row
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        // Gender Type Segmented Pills
-                        ..._kostTypes.map((type) {
-                          final isSelected = _selectedType == type;
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 6),
-                            child: FilterChip(
-                              label: Text(
-                                type == 'Semua' ? 'Semua Tipe' : 'Kost $type',
-                              ),
-                              selected: isSelected,
-                              selectedColor: AppColors.lightGreenBg,
-                              checkmarkColor: AppColors.primaryGreen,
-                              labelStyle: TextStyle(
-                                color: isSelected
-                                    ? AppColors.darkGreen
-                                    : Colors.grey.shade800,
-                                fontWeight: isSelected
-                                    ? FontWeight.w700
-                                    : FontWeight.w500,
-                                fontSize: 12,
-                              ),
-                              onSelected: (_) {
-                                setState(() => _selectedType = type);
-                                _loadKosts();
-                              },
-                            ),
-                          );
-                        }),
-                        const SizedBox(width: 4),
-                        // Facility chips
-                        ..._facilityChips.map((fac) {
-                          final isSelected = _selectedFacility == fac;
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 6),
-                            child: FilterChip(
-                              label: Text(fac),
-                              selected: isSelected,
-                              selectedColor: AppColors.lightGreenBg,
-                              checkmarkColor: AppColors.primaryGreen,
-                              labelStyle: TextStyle(
-                                color: isSelected
-                                    ? AppColors.darkGreen
-                                    : Colors.grey.shade700,
-                                fontWeight: isSelected
-                                    ? FontWeight.w700
-                                    : FontWeight.w500,
-                                fontSize: 12,
-                              ),
-                              onSelected: (_) {
-                                setState(() {
-                                  _selectedFacility = isSelected ? null : fac;
-                                });
-                                _loadKosts();
-                              },
-                            ),
-                          );
-                        }),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            child: _buildTopSearchFilterPanel(),
           ),
 
           // Promo Banner + Sort Header
@@ -984,7 +1618,7 @@ class _MainScreenState extends State<MainScreen> {
                       ),
                       const SizedBox(height: 12),
                       const Text(
-                        'Belum Terhubung ke Server NestJS API',
+                        'Gagal Memuat Data Kost',
                         style: TextStyle(
                           fontWeight: FontWeight.w800,
                           fontSize: 16,
@@ -992,7 +1626,7 @@ class _MainScreenState extends State<MainScreen> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'Pastikan server NestJS (hunigo-api) sudah berjalan di ${ApiService.baseUrl}.\n\nDetail: $_errorMsg',
+                        'Periksa koneksi internet Anda lalu coba kembali.',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           color: Colors.grey.shade600,

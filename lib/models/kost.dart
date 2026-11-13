@@ -25,7 +25,11 @@ class Kost {
   final String ownerName;
   final String ownerPhone;
   final String nearbyLandmark;
+  final double? latitude;
+  final double? longitude;
   final bool isFavorite;
+
+  bool get hasCoordinates => latitude != null && longitude != null;
 
   const Kost({
     required this.id,
@@ -54,6 +58,8 @@ class Kost {
     required this.ownerName,
     required this.ownerPhone,
     required this.nearbyLandmark,
+    this.latitude,
+    this.longitude,
     this.isFavorite = false,
   });
 
@@ -101,8 +107,16 @@ class Kost {
       ownerName: json['ownerName'] ?? 'Pemilik Kost',
       ownerPhone: json['ownerPhone'] ?? '6281234567890',
       nearbyLandmark: json['nearbyLandmark'] ?? '',
+      latitude: _parseDouble(json['latitude']),
+      longitude: _parseDouble(json['longitude']),
       isFavorite: json['isFavorite'] == true,
     );
+  }
+
+  static double? _parseDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    return double.tryParse('$value');
   }
 
   static List<String> _parseStringList(dynamic value) {

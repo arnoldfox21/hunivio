@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import '../models/kost.dart';
+import '../services/mapbox_service.dart';
 import '../utils/formatters.dart';
 import '../widgets/booking_sheet.dart';
 
@@ -362,6 +365,30 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                       ],
                     ),
                   ],
+                  if (kost.hasCoordinates) ...[
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: () => _showMapPreviewDialog(context),
+                      icon: const Icon(
+                        Icons.map_outlined,
+                        size: 17,
+                        color: AppColors.primaryGreen,
+                      ),
+                      label: const Text(
+                        'Lihat Lokasi di Peta',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.primaryGreen,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: AppColors.primaryGreen),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ],
 
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 16),
@@ -691,6 +718,95 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                     'Ajukan Sewa',
                     style: TextStyle(fontWeight: FontWeight.w700),
                   ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showMapPreviewDialog(BuildContext context) {
+    final kost = widget.kost;
+    if (!kost.hasCoordinates) return;
+    final point = LatLng(kost.latitude!, kost.longitude!);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        clipBehavior: Clip.antiAlias,
+        child: SizedBox(
+          height: 380,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.location_on_rounded,
+                      color: AppColors.primaryGreen,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        kost.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: FlutterMap(
+                  options: MapOptions(
+                    initialCenter: point,
+                    initialZoom: 15.5,
+                    minZoom: 5,
+                    maxZoom: 18,
+                    interactionOptions: const InteractionOptions(
+                      flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+                    ),
+                  ),
+                  children: [
+                    TileLayer(
+                      urlTemplate: MapboxConfig.tileUrlTemplate,
+                      tileSize: 512,
+                      zoomOffset: -1,
+                      panBuffer: 0,
+                      keepBuffer: 1,
+                      tileProvider: CachedMapboxTileProvider.instance,
+                      userAgentPackageName: 'com.hunigo.app',
+                    ),
+                    MarkerLayer(
+                      markers: [
+                        Marker(
+                          point: point,
+                          width: 44,
+                          height: 44,
+                          alignment: Alignment.topCenter,
+                          child: const Icon(
+                            Icons.location_pin,
+                            color: AppColors.primaryGreen,
+                            size: 42,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
             ],

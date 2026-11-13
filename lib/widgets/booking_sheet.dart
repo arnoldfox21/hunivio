@@ -68,7 +68,7 @@ class _BookingSheetState extends State<BookingSheet> {
         const SnackBar(
           backgroundColor: AppColors.primaryGreen,
           content: Text(
-            'Pengajuan sewa berhasil dikirim dan tersimpan di PostgreSQL!',
+            'Pengajuan sewa berhasil dikirim!',
           ),
         ),
       );

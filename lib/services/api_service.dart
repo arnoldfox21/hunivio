@@ -5,9 +5,13 @@ import '../models/booking.dart';
 import '../models/user_profile.dart';
 
 class ApiService {
-  static String _baseUrl = 'http://192.168.18.12:3001/api';
+  static const String localBaseUrl = 'http://192.168.18.12:3001/api';
+  static const String onlineBaseUrl = 'https://hunigo-api.vercel.app/api';
+
+  static String _baseUrl = localBaseUrl;
 
   static String get baseUrl => _baseUrl;
+  static bool get isOnline => _baseUrl == onlineBaseUrl;
 
   static void setBaseUrl(String url) {
     _baseUrl = url.endsWith('/') ? url.substring(0, url.length - 1) : url;
@@ -59,7 +63,7 @@ class ApiService {
             .map((item) => Kost.fromJson(item as Map<String, dynamic>))
             .toList();
       } else {
-        throw Exception('Gagal memuat daftar kost (${response.statusCode})');
+        throw Exception('Gagal memuat daftar kost. Silakan coba lagi.');
       }
     } finally {
       client.close();
@@ -149,7 +153,7 @@ class ApiService {
         final decoded = jsonDecode(body) as Map<String, dynamic>;
         return Kost.fromJson(decoded);
       } else {
-        throw Exception('Gagal menambah kost: $body');
+        throw Exception('Gagal menambah kost. Silakan coba lagi.');
       }
     } finally {
       client.close();
@@ -185,7 +189,7 @@ class ApiService {
         final decoded = jsonDecode(body) as Map<String, dynamic>;
         return Booking.fromJson(decoded);
       } else {
-        throw Exception('Gagal membuat pengajuan sewa: $body');
+        throw Exception('Gagal membuat pengajuan sewa. Silakan coba lagi.');
       }
     } finally {
       client.close();
@@ -206,7 +210,7 @@ class ApiService {
             .map((e) => Booking.fromJson(e as Map<String, dynamic>))
             .toList();
       } else {
-        throw Exception('Gagal memuat daftar booking');
+        throw Exception('Gagal memuat daftar pengajuan sewa.');
       }
     } finally {
       client.close();
@@ -242,7 +246,7 @@ class ApiService {
         final decoded = jsonDecode(body) as Map<String, dynamic>;
         return GoogleAuthResult.fromJson(decoded);
       } else {
-        throw Exception('Gagal autentikasi Google ke server: $body');
+        throw Exception('Gagal masuk dengan akun Google. Silakan coba lagi.');
       }
     } finally {
       client.close();
@@ -254,6 +258,11 @@ class ApiService {
     required String name,
     required String phone,
     required String role,
+    String? username,
+    String? bio,
+    String? city,
+    String? avatarUrl,
+    String? coverUrl,
   }) async {
     final uri = Uri.parse('$_baseUrl/auth/users/$userId');
     final client = HttpClient();
@@ -265,6 +274,11 @@ class ApiService {
         'name': name,
         'phone': phone,
         'role': role,
+        if (username != null) 'username': username,
+        if (bio != null) 'bio': bio,
+        if (city != null) 'city': city,
+        if (avatarUrl != null && avatarUrl.isNotEmpty) 'avatarUrl': avatarUrl,
+        if (coverUrl != null) 'coverUrl': coverUrl,
       });
       request.add(utf8.encode(payload));
       final response = await request.close();
@@ -273,7 +287,93 @@ class ApiService {
         final decoded = jsonDecode(body) as Map<String, dynamic>;
         return UserProfile.fromJson(decoded);
       } else {
-        throw Exception('Gagal memperbarui profil: $body');
+        throw Exception('Gagal memperbarui profil. Silakan coba lagi.');
+      }
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<List<UserProfile>> fetchUsers() async {
+    final uri = Uri.parse('$_baseUrl/auth/users');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 6);
+    try {
+      final request = await client.getUrl(uri);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final List<dynamic> list = jsonDecode(body);
+        return list
+            .map((e) => UserProfile.fromJson(e as Map<String, dynamic>))
+            .toList();
+      } else {
+        throw Exception('Gagal memuat daftar pengguna.');
+      }
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<void> deleteUser(int userId) async {
+    final uri = Uri.parse('$_baseUrl/auth/users/$userId');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 6);
+    try {
+      final request = await client.deleteUrl(uri);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        String message = 'Gagal menghapus pengguna.';
+        try {
+          final decoded = jsonDecode(body);
+          if (decoded is Map && decoded['message'] != null) {
+            message = decoded['message'].toString();
+          }
+        } catch (_) {}
+        throw Exception(message);
+      }
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<String> uploadKostImage(File imageFile) async {
+    final bytes = await imageFile.readAsBytes();
+    final filename = imageFile.path.split(Platform.pathSeparator).last;
+    final lower = filename.toLowerCase();
+    final mimeType = lower.endsWith('.png')
+        ? 'image/png'
+        : lower.endsWith('.webp')
+            ? 'image/webp'
+            : 'image/jpeg';
+
+    final uri = Uri.parse('$_baseUrl/kosts/upload-image');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 15);
+    try {
+      final request = await client.postUrl(uri);
+      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
+      request.add(
+        utf8.encode(
+          jsonEncode({
+            'base64': base64Encode(bytes),
+            'filename': filename,
+            'mimeType': mimeType,
+          }),
+        ),
+      );
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final decoded = jsonDecode(body) as Map<String, dynamic>;
+        final url = decoded['url']?.toString() ?? '';
+        if (url.isEmpty) {
+          throw Exception('URL gambar tidak ditemukan dari server.');
+        }
+        return url;
+      } else {
+        throw Exception('Gagal mengunggah foto kost.');
       }
     } finally {
       client.close();
