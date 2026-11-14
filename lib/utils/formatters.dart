@@ -4,6 +4,10 @@ class AppColors {
   static const Color primaryGreen = Color(0xFF1BAA56);
   static const Color darkGreen = Color(0xFF0E7C3A);
   static const Color lightGreenBg = Color(0xFFE8F7EE);
+  static const Color surfaceBg = Color(0xFFF6F8FA);
+  static const Color cardBorder = Color(0xFFE6ECF2);
+  static const Color textPrimary = Color(0xFF111827);
+  static const Color textSecondary = Color(0xFF6B7280);
   static const Color putriPink = Color(0xFFE02954);
   static const Color putriBg = Color(0xFFFDECEF);
   static const Color putraBlue = Color(0xFF1E6CEB);

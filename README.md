@@ -1,14 +1,14 @@
-# HuniGo — Aplikasi Pencari & Sewa Kost
+# HuniVio — Aplikasi Pencari & Sewa Kost
 
 Aplikasi Flutter untuk mencari, memfilter, melihat detail, dan mengajukan sewa kost dengan mudah, terintegrasi dengan backend **NestJS + PostgreSQL** di project terpisah.
 
 ## Struktur Project
-1. **Frontend (Flutter)**: `/Users/kurniawank/Documents/Projects/hunigo`
-2. **Backend API (NestJS + TypeORM)**: `/Users/kurniawank/Documents/Projects/hunigo-api` (atau `kost2u-api`)
+1. **Frontend (Flutter)**: `/Users/kurniawank/Documents/Projects/hunivio`
+2. **Backend API (NestJS + TypeORM)**: `/Users/kurniawank/Documents/Projects/hunivio-api` (atau `kost2u-api`)
 3. **Database (PostgreSQL 16 Lokal)**: `/Applications/Postgres.app/Contents/Versions/16/bin` (`localhost:5432`, database: `kost2u_db`)
 
 ## Fitur Utama
-- **Daftar Kost Lengkap**: Badge *HuniGo Pilihan*, tipe kost (*Putri*, *Putra*, *Campur*), sisa kamar, rating & jumlah ulasan, diskon coret, dan info fasilitas.
+- **Daftar Kost Lengkap**: Badge *HuniVio Pilihan*, tipe kost (*Putri*, *Putra*, *Campur*), sisa kamar, rating & jumlah ulasan, diskon coret, dan info fasilitas.
 - **Pencarian & Filter Lengkap**:
   - Cari berdasarkan nama kost, area/kecamatan, kampus terdekat, atau kota.
   - Filter Kota (*Jakarta Selatan*, *Yogyakarta*, *Bandung*, *Depok*, *Surabaya*, *Malang*).

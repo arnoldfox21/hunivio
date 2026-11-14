@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import '../models/booking.dart';
 import '../models/kost.dart';
+import '../models/review.dart';
+import '../services/api_service.dart';
+import '../services/auth_service.dart';
 import '../services/mapbox_service.dart';
 import '../utils/formatters.dart';
 import '../widgets/booking_sheet.dart';
+import 'kost_chat_screen.dart';
+import 'owner_profile_screen.dart';
 
 class KostDetailScreen extends StatefulWidget {
   final Kost kost;
@@ -27,92 +33,503 @@ class KostDetailScreen extends StatefulWidget {
 class _KostDetailScreenState extends State<KostDetailScreen> {
   int _currentImageIndex = 0;
   late bool _isFav;
+  List<Review> _reviews = [];
+  bool _loadingReviews = true;
+  Booking? _ongoingBooking;
 
   @override
   void initState() {
     super.initState();
     _isFav = widget.isFavorite;
+    _loadReviews();
+    _checkOngoingBooking();
   }
 
-  void _showChatDialog() {
-    final kost = widget.kost;
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
+  Future<void> _checkOngoingBooking() async {
+    final user = AuthService.currentUser;
+    if (user == null) return;
+    try {
+      final list = await ApiService.fetchBookings(userId: user.id);
+      if (!mounted) return;
+      Booking? match;
+      for (final b in list) {
+        if (b.kostId == widget.kost.id &&
+            !b.isSurvey &&
+            const [
+              'TERKIRIM',
+              'MENUNGGU KONFIRMASI',
+              'DISETUJUI',
+              'APPROVED',
+              'AKTIF',
+            ].contains(b.status.toUpperCase())) {
+          match = b;
+          break;
+        }
+      }
+      setState(() => _ongoingBooking = match);
+    } catch (_) {}
+  }
+
+  Future<void> _loadReviews() async {
+    try {
+      final list = await ApiService.fetchReviews(widget.kost.id);
+      if (!mounted) return;
+      setState(() {
+        _reviews = list;
+        _loadingReviews = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingReviews = false);
+    }
+  }
+
+  void _openWriteReviewDialog() {
+    final user = AuthService.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Silakan masuk terlebih dahulu untuk menulis ulasan.'),
+        ),
+      );
+      return;
+    }
+    final commentCtrl = TextEditingController();
+    double clean = 5;
+    double security = 5;
+    double accuracy = 5;
+    bool submitting = false;
+    String? validationError;
+    final selectedTags = <String>{};
+    const quickTags = [
+      'Bersih & Rapi',
+      'Pemilik Ramah',
+      'Lokasi Strategis',
+      'Wi-Fi Kencang',
+      'Tenang & Nyaman',
+      'Sesuai Foto',
+    ];
+
+    String ratingLabel(double avg) {
+      if (avg >= 4.6) return 'Luar Biasa';
+      if (avg >= 4.0) return 'Sangat Bagus';
+      if (avg >= 3.2) return 'Cukup Baik';
+      return 'Perlu Perbaikan';
+    }
+
+    Widget buildStarRow(
+      String label,
+      IconData icon,
+      double current,
+      ValueChanged<double> onChanged,
+    ) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Row(
           children: [
-            const CircleAvatar(
-              backgroundColor: AppColors.lightGreenBg,
-              child: Icon(Icons.chat_rounded, color: AppColors.primaryGreen),
-            ),
-            const SizedBox(width: 10),
+            Icon(icon, size: 18, color: AppColors.primaryGreen),
+            const SizedBox(width: 8),
             Expanded(
               child: Text(
-                'Tanya ${kost.ownerName}',
+                label,
                 style: const TextStyle(
-                  fontSize: 16,
+                  fontSize: 13.5,
                   fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
                 ),
               ),
             ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Nomor WhatsApp Pemilik: ${kost.ownerPhone}',
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                '"Halo ${kost.ownerName}, saya tertarik dengan ${kost.name} di ${kost.district}, ${kost.city} (${formatRupiah(kost.pricePerMonth)}/bulan). Apakah kamar masih tersedia?"',
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Tutup'),
-          ),
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primaryGreen,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  backgroundColor: AppColors.primaryGreen,
-                  content: Text(
-                    'Pesan dikirim ke ${kost.ownerName} (${kost.ownerPhone})',
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: List.generate(5, (idx) {
+                final star = idx + 1;
+                final filled = star <= current.round();
+                return InkWell(
+                  borderRadius: BorderRadius.circular(16),
+                  onTap: () => onChanged(star.toDouble()),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    child: Icon(
+                      filled ? Icons.star_rounded : Icons.star_border_rounded,
+                      size: 26,
+                      color: filled
+                          ? const Color(0xFFF59E0B)
+                          : Colors.grey.shade300,
+                    ),
                   ),
-                ),
-              );
-            },
-            icon: const Icon(Icons.send_rounded, size: 16),
-            label: const Text('Kirim Pesan'),
-          ),
-        ],
+                );
+              }),
+            ),
+          ],
+        ),
+      );
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          final avg = (clean + security + accuracy) / 3.0;
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              20,
+              12,
+              20,
+              MediaQuery.of(ctx).viewInsets.bottom + 20,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 42,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Tulis Ulasan Terverifikasi',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 17,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppColors.lightGreenBg,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.verified_rounded,
+                                size: 13, color: AppColors.primaryGreen),
+                            SizedBox(width: 4),
+                            Text(
+                              'Penghuni',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.darkGreen,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    widget.kost.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: AppColors.textSecondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: AppColors.cardBorder),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: AppColors.primaryGreen,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.star_rounded,
+                                  color: Colors.white, size: 18),
+                              const SizedBox(width: 4),
+                              Text(
+                                avg.toStringAsFixed(1),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                ratingLabel(avg),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 14.5,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                              const Text(
+                                'Rata-rata penilaian Anda dari 3 aspek',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  buildStarRow(
+                    'Kebersihan',
+                    Icons.cleaning_services_outlined,
+                    clean,
+                    (v) => setSheetState(() => clean = v),
+                  ),
+                  buildStarRow(
+                    'Keamanan',
+                    Icons.shield_outlined,
+                    security,
+                    (v) => setSheetState(() => security = v),
+                  ),
+                  buildStarRow(
+                    'Kesesuaian Foto',
+                    Icons.photo_camera_outlined,
+                    accuracy,
+                    (v) => setSheetState(() => accuracy = v),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Kesan Singkat (Opsional)',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: quickTags.map((tag) {
+                      final active = selectedTags.contains(tag);
+                      return FilterChip(
+                        label: Text(
+                          tag,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                            color: active
+                                ? AppColors.darkGreen
+                                : AppColors.textSecondary,
+                          ),
+                        ),
+                        selected: active,
+                        selectedColor: AppColors.lightGreenBg,
+                        checkmarkColor: AppColors.primaryGreen,
+                        side: BorderSide(
+                          color: active
+                              ? AppColors.primaryGreen
+                              : AppColors.cardBorder,
+                        ),
+                        onSelected: (sel) {
+                          setSheetState(() {
+                            if (sel) {
+                              selectedTags.add(tag);
+                              if (!commentCtrl.text.contains(tag)) {
+                                final current = commentCtrl.text.trim();
+                                commentCtrl.text =
+                                    current.isEmpty ? tag : '$current, $tag';
+                              }
+                            } else {
+                              selectedTags.remove(tag);
+                            }
+                          });
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: commentCtrl,
+                    maxLines: 4,
+                    maxLength: 300,
+                    onChanged: (_) {
+                      if (validationError != null) {
+                        setSheetState(() => validationError = null);
+                      }
+                    },
+                    decoration: InputDecoration(
+                      labelText: 'Ceritakan pengalaman tinggal Anda',
+                      hintText:
+                          'Bagaimana kondisi kamar, lingkungan, dan keramahan pemilik?',
+                      alignLabelWithHint: true,
+                      errorText: validationError,
+                      filled: true,
+                      fillColor: const Color(0xFFF9FAFB),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primaryGreen,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      onPressed: submitting
+                          ? null
+                          : () async {
+                              if (commentCtrl.text.trim().isEmpty) {
+                                setSheetState(() {
+                                  validationError =
+                                      'Mohon tuliskan ulasan singkat Anda terlebih dahulu.';
+                                });
+                                return;
+                              }
+                              setSheetState(() => submitting = true);
+                              try {
+                                await ApiService.createReview(
+                                  kostId: widget.kost.id,
+                                  userId: user.id,
+                                  userName: user.name,
+                                  userAvatar: user.avatarUrl,
+                                  ratingCleanliness: clean,
+                                  ratingSecurity: security,
+                                  ratingAccuracy: accuracy,
+                                  comment: commentCtrl.text.trim(),
+                                );
+                                if (!ctx.mounted) return;
+                                Navigator.of(ctx).pop();
+                                _loadReviews();
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    backgroundColor: AppColors.primaryGreen,
+                                    content: Text(
+                                        'Terima kasih! Ulasan Anda tersimpan.'),
+                                  ),
+                                );
+                              } catch (e) {
+                                setSheetState(() => submitting = false);
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    backgroundColor: Colors.red.shade700,
+                                    content: Text(e
+                                        .toString()
+                                        .replaceFirst('Exception: ', '')),
+                                  ),
+                                );
+                              }
+                            },
+                      icon: submitting
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.send_rounded, size: 18),
+                      label: Text(
+                        submitting ? 'Mengirim Ulasan...' : 'Kirim Ulasan',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  bool get _isOwner =>
+      AuthService.currentUser != null &&
+      AuthService.currentUser!.id == widget.kost.ownerId;
+
+  void _openChatScreen() {
+    if (AuthService.currentUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Silakan masuk terlebih dahulu untuk bertanya ke pemilik.'),
+        ),
+      );
+      return;
+    }
+    if (_isOwner) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Anda tidak dapat mengirim pesan ke properti milik sendiri.'),
+        ),
+      );
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => KostChatScreen(kost: widget.kost),
       ),
     );
   }
 
   void _openBookingSheet() {
+    if (AuthService.currentUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Silakan masuk terlebih dahulu untuk mengajukan sewa.'),
+        ),
+      );
+      return;
+    }
+    if (_isOwner) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Anda tidak dapat mengajukan sewa pada properti milik sendiri.'),
+        ),
+      );
+      return;
+    }
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -122,7 +539,10 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
       ),
       builder: (_) => BookingSheet(
         kost: widget.kost,
-        onSuccess: widget.onBookingCreated,
+        onSuccess: () {
+          widget.onBookingCreated();
+          _checkOngoingBooking();
+        },
       ),
     );
   }
@@ -150,10 +570,16 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                 },
                 icon: CircleAvatar(
                   backgroundColor: Colors.black.withOpacity(0.35),
-                  child: Icon(
-                    _isFav ? Icons.favorite_rounded : Icons.favorite_border,
-                    color: _isFav ? AppColors.putriPink : Colors.white,
-                    size: 20,
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    transitionBuilder: (child, anim) =>
+                        ScaleTransition(scale: anim, child: child),
+                    child: Icon(
+                      _isFav ? Icons.favorite_rounded : Icons.favorite_border,
+                      key: ValueKey<bool>(_isFav),
+                      color: _isFav ? Colors.red.shade600 : Colors.white,
+                      size: 20,
+                    ),
                   ),
                 ),
               ),
@@ -173,7 +599,7 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                           onPageChanged: (idx) =>
                               setState(() => _currentImageIndex = idx),
                           itemBuilder: (context, idx) {
-                            return Image.network(
+                            final img = Image.network(
                               images[idx],
                               fit: BoxFit.cover,
                               errorBuilder: (_, __, ___) => Container(
@@ -181,6 +607,13 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                                 child: const Icon(Icons.bed, size: 64),
                               ),
                             );
+                            if (idx == 0) {
+                              return Hero(
+                                tag: 'kost_img_${kost.id}',
+                                child: img,
+                              );
+                            }
+                            return img;
                           },
                         ),
                         Positioned(
@@ -261,7 +694,7 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                               ),
                               SizedBox(width: 4),
                               Text(
-                                'HuniGo Pilihan',
+                                'HuniVio Pilihan',
                                 style: TextStyle(
                                   color: AppColors.darkGreen,
                                   fontWeight: FontWeight.w700,
@@ -585,48 +1018,182 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                   const SizedBox(height: 18),
 
                   // Owner Card
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade50,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.grey.shade200),
-                    ),
-                    child: Row(
-                      children: [
-                        const CircleAvatar(
-                          radius: 22,
-                          backgroundColor: AppColors.lightGreenBg,
-                          child: Icon(
-                            Icons.person_rounded,
+                  InkWell(
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => OwnerProfileScreen(
+                            ownerId: kost.ownerId,
+                            initialOwnerName: kost.ownerName,
+                            sourceKost: kost,
+                          ),
+                        ),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.grey.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          const CircleAvatar(
+                            radius: 22,
+                            backgroundColor: AppColors.lightGreenBg,
+                            child: Icon(
+                              Icons.person_rounded,
+                              color: AppColors.primaryGreen,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Dikelola oleh ${kost.ownerName}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                Text(
+                                  kost.isVerified
+                                      ? 'Pemilik Terverifikasi • Lihat profil & postingan'
+                                      : 'Pemilik Properti • Lihat profil & postingan',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(
+                            Icons.chevron_right_rounded,
                             color: AppColors.primaryGreen,
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Dikelola oleh ${kost.ownerName}',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 14,
-                                ),
-                              ),
-                              Text(
-                                'Pemilik Kos Terverifikasi • Respon Cepat',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey.shade600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
+                  const SizedBox(height: 20),
+
+                  // Verified Reviews Section
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Ulasan Penghuni',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: _openWriteReviewDialog,
+                        icon: const Icon(Icons.rate_review_outlined, size: 17),
+                        label: const Text('Tulis Ulasan'),
+                      ),
+                    ],
+                  ),
+                  if (_loadingReviews)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      child: Center(
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.primaryGreen,
+                        ),
+                      ),
+                    )
+                  else if (_reviews.isEmpty)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.grey.shade200),
+                      ),
+                      child: Text(
+                        'Belum ada ulasan tertulis. Hanya penghuni dengan booking aktif/selesai yang dapat memberi ulasan terverifikasi.',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    )
+                  else
+                    ..._reviews.map(
+                      (rev) => Container(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.cardBorder),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                CircleAvatar(
+                                  radius: 15,
+                                  backgroundColor: AppColors.lightGreenBg,
+                                  child: Text(
+                                    rev.userName.isNotEmpty
+                                        ? rev.userName[0].toUpperCase()
+                                        : 'P',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
+                                      color: AppColors.primaryGreen,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    rev.userName,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 13.5,
+                                    ),
+                                  ),
+                                ),
+                                const Icon(
+                                  Icons.star_rounded,
+                                  size: 16,
+                                  color: Color(0xFFF59E0B),
+                                ),
+                                const SizedBox(width: 2),
+                                Text(
+                                  rev.overallRating.toStringAsFixed(1),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              rev.comment,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                height: 1.4,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   const SizedBox(height: 90),
                 ],
               ),
@@ -682,44 +1249,95 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                   ],
                 ),
               ),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.primaryGreen,
-                  side: const BorderSide(color: AppColors.primaryGreen),
+              if (_isOwner)
+                Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 12,
+                    horizontal: 14,
+                    vertical: 11,
                   ),
-                  shape: RoundedRectangleBorder(
+                  decoration: BoxDecoration(
+                    color: AppColors.lightGreenBg,
                     borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: AppColors.primaryGreen.withOpacity(0.3),
+                    ),
                   ),
-                ),
-                onPressed: _showChatDialog,
-                icon: const Icon(Icons.chat_bubble_outline_rounded, size: 17),
-                label: const Text(
-                  'Tanya',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                flex: 4,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primaryGreen,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 13),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.verified_user_outlined,
+                        size: 17,
+                        color: AppColors.darkGreen,
+                      ),
+                      SizedBox(width: 6),
+                      Text(
+                        'Properti Milik Anda',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          color: AppColors.darkGreen,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else ...[
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.primaryGreen,
+                    side: const BorderSide(color: AppColors.primaryGreen),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
                   ),
-                  onPressed: _openBookingSheet,
-                  child: const Text(
-                    'Ajukan Sewa',
+                  onPressed: _openChatScreen,
+                  icon: const Icon(Icons.chat_bubble_outline_rounded, size: 17),
+                  label: const Text(
+                    'Tanya',
                     style: TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ),
-              ),
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 4,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _ongoingBooking != null
+                          ? Colors.grey.shade400
+                          : AppColors.primaryGreen,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    onPressed: _ongoingBooking != null
+                        ? () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Anda sudah memiliki pengajuan untuk properti ini (${_ongoingBooking!.status}).',
+                                ),
+                              ),
+                            );
+                          }
+                        : _openBookingSheet,
+                    child: Text(
+                      _ongoingBooking == null
+                          ? 'Ajukan Sewa'
+                          : (_ongoingBooking!.status.toUpperCase() == 'AKTIF'
+                              ? 'Sewa Aktif'
+                              : 'Dalam Pengajuan'),
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -789,7 +1407,7 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                       panBuffer: 0,
                       keepBuffer: 1,
                       tileProvider: CachedMapboxTileProvider.instance,
-                      userAgentPackageName: 'com.hunigo.app',
+                      userAgentPackageName: 'com.hunivio.app',
                     ),
                     MarkerLayer(
                       markers: [

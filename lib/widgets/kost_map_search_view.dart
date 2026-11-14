@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../models/kost.dart';
@@ -108,7 +109,7 @@ class _KostMapSearchViewState extends State<KostMapSearchView> {
               panBuffer: 0,
               keepBuffer: 2,
               tileProvider: CachedMapboxTileProvider.instance,
-              userAgentPackageName: 'com.hunigo.app',
+              userAgentPackageName: 'com.hunivio.app',
             ),
             if (_radiusKm != null)
               CircleLayer(
@@ -123,9 +124,9 @@ class _KostMapSearchViewState extends State<KostMapSearchView> {
                   ),
                 ],
               ),
-            MarkerLayer(
-              markers: [
-                if (_hasUserLocation)
+            if (_hasUserLocation)
+              MarkerLayer(
+                markers: [
                   Marker(
                     point: _userCenter,
                     width: 28,
@@ -153,7 +154,16 @@ class _KostMapSearchViewState extends State<KostMapSearchView> {
                       ),
                     ),
                   ),
-                ...visibleKosts.map((kost) {
+                ],
+              ),
+            MarkerClusterLayerWidget(
+              options: MarkerClusterLayerOptions(
+                maxClusterRadius: 55,
+                size: const Size(44, 44),
+                alignment: Alignment.center,
+                padding: const EdgeInsets.all(40),
+                maxZoom: 16,
+                markers: visibleKosts.map((kost) {
                   final isSelected = _selectedKost?.id == kost.id;
                   return Marker(
                     point: LatLng(kost.latitude!, kost.longitude!),
@@ -164,8 +174,7 @@ class _KostMapSearchViewState extends State<KostMapSearchView> {
                       onTap: () {
                         setState(() => _selectedKost = kost);
                       },
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 160),
+                      child: Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 8,
                           vertical: 5,
@@ -203,8 +212,34 @@ class _KostMapSearchViewState extends State<KostMapSearchView> {
                       ),
                     ),
                   );
-                }),
-              ],
+                }).toList(),
+                builder: (context, markers) {
+                  return Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: AppColors.primaryGreen,
+                      border: Border.all(color: Colors.white, width: 2.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.primaryGreen.withOpacity(0.35),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: Center(
+                      child: Text(
+                        '${markers.length}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
             ),
           ],
         ),

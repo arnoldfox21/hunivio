@@ -1,5 +1,5 @@
-name: hunigo
-description: "HuniGo - Aplikasi Pencari & Sewa Kost."
+name: hunivio
+description: "HuniVio - Aplikasi Pencari & Sewa Kost."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -40,6 +40,12 @@ dependencies:
   flutter_map: ^7.0.2
   latlong2: ^0.9.1
   geolocator: ^13.0.1
+  shared_preferences: ^2.3.2
+  socket_io_client: ^3.1.6
+  flutter_map_marker_cluster: ^1.4.0
+  firebase_core: ^4.7.0
+  firebase_messaging: ^16.2.0
+  flutter_local_notifications: ^19.5.0
 
 dev_dependencies:
   flutter_test:
@@ -64,7 +70,7 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/images/hunigo_logo.png
+    - assets/images/hunivio_logo.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/assets-and-images/#resolution-aware

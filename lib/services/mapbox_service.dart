@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -32,6 +33,18 @@ class LocationResult {
   });
 }
 
+class ReverseGeocodeResult {
+  final String city;
+  final String district;
+  final String address;
+
+  const ReverseGeocodeResult({
+    this.city = '',
+    this.district = '',
+    this.address = '',
+  });
+}
+
 class LocationHelper {
   static const Distance _distance = Distance();
 
@@ -45,6 +58,118 @@ class LocationHelper {
       return '$meters m';
     }
     return '${km.toStringAsFixed(1)} km';
+  }
+
+  static Future<ReverseGeocodeResult?> reverseGeocode(LatLng point) async {
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 6);
+    try {
+      String city = '';
+      String district = '';
+      String address = '';
+
+      // 1. Coba Mapbox Geocoding API
+      if (MapboxConfig.publicToken.trim().isNotEmpty) {
+        try {
+          final uri = Uri.parse(
+            'https://api.mapbox.com/geocoding/v5/mapbox.places/${point.longitude},${point.latitude}.json'
+            '?access_token=${MapboxConfig.publicToken}&language=id&types=address,neighborhood,locality,place,district',
+          );
+          final req = await client.getUrl(uri);
+          final res = await req.close().timeout(const Duration(seconds: 6));
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            final body = await res.transform(utf8.decoder).join();
+            final decoded = jsonDecode(body);
+            if (decoded is Map<String, dynamic>) {
+              final features = decoded['features'] as List<dynamic>? ?? [];
+              if (features.isNotEmpty && features.first is Map<String, dynamic>) {
+                final primary = features.first as Map<String, dynamic>;
+                address = primary['place_name']?.toString() ?? '';
+                final contexts = primary['context'] as List<dynamic>? ?? [];
+                String placeCity = '';
+                String regencyCity = '';
+                for (final c in contexts) {
+                  if (c is! Map<String, dynamic>) continue;
+                  final cid = c['id']?.toString() ?? '';
+                  final text = (c['text']?.toString() ?? '').trim();
+                  if (text.isEmpty) continue;
+                  if (district.isEmpty &&
+                      (cid.startsWith('locality.') ||
+                          cid.startsWith('neighborhood.'))) {
+                    district = text;
+                  } else if (placeCity.isEmpty && cid.startsWith('place.')) {
+                    placeCity = text;
+                  } else if (regencyCity.isEmpty && cid.startsWith('district.')) {
+                    regencyCity = text;
+                  }
+                }
+                city = placeCity.isNotEmpty ? placeCity : regencyCity;
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
+      // 2. Fallback / lengkapi dengan OpenStreetMap Nominatim bila kecamatan/kota masih kosong
+      if (city.isEmpty || district.isEmpty || address.isEmpty) {
+        try {
+          final nomUri = Uri.parse(
+            'https://nominatim.openstreetmap.org/reverse?format=jsonv2'
+            '&lat=${point.latitude}&lon=${point.longitude}&accept-language=id',
+          );
+          final req = await client.getUrl(nomUri);
+          req.headers.set('User-Agent', 'HuniVioApp/1.0');
+          final res = await req.close().timeout(const Duration(seconds: 6));
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            final body = await res.transform(utf8.decoder).join();
+            final decoded = jsonDecode(body);
+            if (decoded is Map<String, dynamic>) {
+              final addr = decoded['address'] as Map<String, dynamic>? ?? {};
+              if (address.isEmpty) {
+                address = decoded['display_name']?.toString() ?? '';
+              }
+              if (district.isEmpty) {
+                district = (addr['city_district'] ??
+                        addr['district'] ??
+                        addr['suburb'] ??
+                        addr['village'] ??
+                        addr['town'] ??
+                        '')
+                    .toString()
+                    .trim();
+              }
+              if (city.isEmpty) {
+                city = (addr['city'] ??
+                        addr['county'] ??
+                        addr['municipality'] ??
+                        addr['state_district'] ??
+                        addr['regency'] ??
+                        '')
+                    .toString()
+                    .trim();
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
+      // Bersihkan awalan "Kecamatan " / "Kec. " agar konsisten dengan data autocomplete
+      district = district
+          .replaceFirst(RegExp(r'^(Kecamatan|Kec\.?)\s+', caseSensitive: false), '')
+          .trim();
+      city = city
+          .replaceFirst(RegExp(r'^Kab\.?\s+', caseSensitive: false), 'Kabupaten ')
+          .trim();
+
+      if (city.isEmpty && district.isEmpty && address.isEmpty) return null;
+      return ReverseGeocodeResult(
+        city: city.trim(),
+        district: district.trim(),
+        address: address.trim(),
+      );
+    } finally {
+      client.close();
+    }
   }
 
   static Future<LocationResult> getCurrentLocation() async {
@@ -125,7 +250,7 @@ class CachedMapboxTileProvider extends TileProvider {
 
   Future<Directory> _getCacheDir() async {
     if (_cacheDir != null) return _cacheDir!;
-    final dir = Directory('${Directory.systemTemp.path}/hunigo_mapbox_tiles');
+    final dir = Directory('${Directory.systemTemp.path}/hunivio_mapbox_tiles');
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }

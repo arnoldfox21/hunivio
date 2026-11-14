@@ -53,7 +53,7 @@ class _KostLocationPickerScreenState extends State<KostLocationPickerScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-          'Pilih Pin Lokasi Kost',
+          'Pilih Pin Lokasi Properti',
           style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
         ),
         backgroundColor: Colors.white,
@@ -92,7 +92,7 @@ class _KostLocationPickerScreenState extends State<KostLocationPickerScreen> {
                 panBuffer: 0,
                 keepBuffer: 2,
                 tileProvider: CachedMapboxTileProvider.instance,
-                userAgentPackageName: 'com.hunigo.app',
+                userAgentPackageName: 'com.hunivio.app',
               ),
             ],
           ),

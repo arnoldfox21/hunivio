@@ -1,11 +1,11 @@
-# Agent Guide — HuniGo (Flutter Frontend)
+# Agent Guide — HuniVio (Flutter Frontend)
 
-Dokumen ini menjadi panduan utama bagi AI Agent maupun developer yang bekerja pada repositori **HuniGo** (Aplikasi Pencari & Sewa Kost berbasis Flutter).
+Dokumen ini menjadi panduan utama bagi AI Agent maupun developer yang bekerja pada repositori **HuniVio** (Aplikasi Pencari & Sewa Kost berbasis Flutter).
 
 ---
 
 ## 1. Gambaran Umum Project
-- **Nama Aplikasi**: HuniGo (`com.hunigo.app`)
+- **Nama Aplikasi**: HuniVio (`com.hunivio.app`)
 - **Framework & SDK**: Flutter (Dart SDK `>=3.4.3 <4.0.0`, Material 3)
 - **Backend Terkait**: NestJS + TypeORM (`kost2u-api`) yang berjalan di port `3001` dengan database PostgreSQL 16 lokal (`kost2u_db`).
 - **Fungsi Utama**:
@@ -13,7 +13,7 @@ Dokumen ini menjadi panduan utama bagi AI Agent maupun developer yang bekerja pa
   - Manajemen kost favorit (`isFavorite`).
   - Halaman detail kost lengkap dengan galeri foto, spesifikasi kamar, fasilitas, aturan kost, lokasi, kontak WhatsApp pemilik, dan pengajuan sewa.
   - Pengajuan & riwayat sewa kamar (*Booking*) yang tersimpan langsung ke PostgreSQL.
-  - Autentikasi Google Sign-In (dengan dukungan Native Android Account Picker via `MethodChannel('com.hunigo.app/google_auth')`) serta manajemen profil & role pengguna (*Pencari Kost* / *Pemilik Kost*).
+  - Autentikasi Google Sign-In (dengan dukungan Native Android Account Picker via `MethodChannel('com.hunivio.app/google_auth')`) serta manajemen profil & role pengguna (*Pencari Kost* / *Pemilik Kost*).
   - Fitur tambah kost baru khusus untuk pengguna dengan role *Pemilik Kost*.
 
 ---
@@ -21,11 +21,11 @@ Dokumen ini menjadi panduan utama bagi AI Agent maupun developer yang bekerja pa
 ## 2. Struktur Direktori Utama
 
 ```text
-hunigo/
-├── android/                  # Konfigurasi & kode native Android (Kotlin, namespace com.hunigo.app)
+hunivio/
+├── android/                  # Konfigurasi & kode native Android (Kotlin, namespace com.hunivio.app)
 ├── ios/                      # Konfigurasi & runner iOS (Swift)
 ├── lib/
-│   ├── main.dart             # Entry point aplikasi (HuniGoApp)
+│   ├── main.dart             # Entry point aplikasi (HuniVioApp)
 │   ├── models/
 │   │   ├── booking.dart      # Model data Booking sewa kost
 │   │   ├── kost.dart         # Model data Kost beserta serialisasi JSON
@@ -74,7 +74,7 @@ Seluruh komunikasi ke backend dikelola di `lib/services/api_service.dart` menggu
    - State pengguna saat ini disimpan secara reaktif menggunakan `AuthService.currentUserNotifier` (`ValueNotifier<UserProfile?>`).
    - Pastikan setiap pemanggilan async di `StatefulWidget` memeriksa `if (!mounted) return;` sebelum memanggil `setState()` atau menggunakan `BuildContext`.
 3. **Autentikasi Android**:
-   - Pada Android, `AuthService.signInOrRegisterWithGoogle()` memprioritaskan pemanggilan native account picker melalui `MethodChannel('com.hunigo.app/google_auth')` (`pickGoogleAccount`) di `MainActivity.kt` untuk menghindari kendala `ApiException: 10`, dengan fallback ke paket `google_sign_in`. Jangan menghapus channel ini di `MainActivity.kt`.
+   - Pada Android, `AuthService.signInOrRegisterWithGoogle()` memprioritaskan pemanggilan native account picker melalui `MethodChannel('com.hunivio.app/google_auth')` (`pickGoogleAccount`) di `MainActivity.kt` untuk menghindari kendala `ApiException: 10`, dengan fallback ke paket `google_sign_in`. Jangan menghapus channel ini di `MainActivity.kt`.
 4. **Pengujian & Efisiensi Waktu**:
    - **JANGAN melakukan test atau proses inspeksi/verifikasi yang membutuhkan waktu terlalu lama** (hindari *long-running test*, pemindaian berulang di perangkat, atau proses *polling* yang memakan waktu).
    - Utamakan verifikasi cepat seperti `flutter analyze` atau pengecekan langsung yang ringan dan efisien.

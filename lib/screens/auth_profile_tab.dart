@@ -3,8 +3,12 @@ import 'package:flutter/material.dart';
 import '../models/user_profile.dart';
 import '../services/auth_service.dart';
 import '../utils/formatters.dart';
+import '../widgets/animated_vectors.dart';
 import 'edit_profile_screen.dart';
+import 'manage_properties_screen.dart';
 import 'manage_users_screen.dart';
+import 'onboarding_wizard_screen.dart';
+import 'owner_profile_screen.dart';
 
 class AuthProfileTab extends StatefulWidget {
   const AuthProfileTab({super.key});
@@ -26,13 +30,22 @@ class _AuthProfileTabState extends State<AuthProfileTab> {
         setState(() => _loadingGoogle = false);
         return;
       }
+      if (result.isNewUser || !result.user.onboardingCompleted) {
+        await Navigator.of(context).push<bool>(
+          MaterialPageRoute(
+            builder: (_) => OnboardingWizardScreen(user: result.user),
+          ),
+        );
+        if (!mounted) return;
+      }
+      final currentUser = AuthService.currentUserNotifier.value ?? result.user;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.primaryGreen,
           content: Text(
             result.isNewUser
-                ? 'Pendaftaran berhasil! Selamat datang di HuniGo, ${result.user.name}.'
-                : 'Berhasil masuk sebagai ${result.user.name} (${result.user.email}).',
+                ? 'Pendaftaran berhasil! Selamat datang di HuniVio, ${currentUser.name}.'
+                : 'Berhasil masuk sebagai ${currentUser.name} (${currentUser.email}).',
           ),
         ),
       );
@@ -158,52 +171,84 @@ class _AuthProfileTabState extends State<AuthProfileTab> {
       padding: const EdgeInsets.all(24),
       child: Column(
         children: [
-          const SizedBox(height: 24),
+          const SizedBox(height: 8),
           Container(
-            width: 88,
-            height: 88,
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [Color(0xFF1BAA56), Color(0xFF0A6832)],
+                colors: [AppColors.primaryGreen, AppColors.darkGreen],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
-              borderRadius: BorderRadius.circular(26),
+              borderRadius: BorderRadius.circular(24),
               boxShadow: [
                 BoxShadow(
-                  color: AppColors.primaryGreen.withOpacity(0.28),
-                  blurRadius: 18,
+                  color: AppColors.primaryGreen.withOpacity(0.24),
+                  blurRadius: 20,
                   offset: const Offset(0, 8),
                 ),
               ],
             ),
-            child: const Icon(
-              Icons.home_work_rounded,
-              size: 46,
-              color: Colors.white,
+            clipBehavior: Clip.antiAlias,
+            child: Stack(
+              children: [
+                const Positioned.fill(
+                  child: AnimatedVectorBackdrop(subtle: true),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 24,
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 84,
+                        height: 84,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(24),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.20),
+                              blurRadius: 16,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(24),
+                          child: Image.asset(
+                            'assets/images/hunivio_logo.png',
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Masuk atau Daftar di HuniVio',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 21,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Kelola profil, simpan kost favorit, dan ajukan sewa dengan mudah menggunakan akun Google.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          height: 1.5,
+                          color: Colors.white.withOpacity(0.9),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 22),
-          const Text(
-            'Masuk atau Daftar di HuniGo',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF111827),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Kelola profil, simpan kost favorit, dan ajukan sewa dengan mudah menggunakan akun Google.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 13.5,
-              height: 1.5,
-              color: Colors.grey.shade600,
-            ),
-          ),
-          const SizedBox(height: 28),
+          const SizedBox(height: 20),
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -431,34 +476,47 @@ class _AuthProfileTabState extends State<AuthProfileTab> {
                       // Top-right Edit Profile CTA
                       Positioned(
                         right: 16,
-                        bottom: 4,
-                        child: OutlinedButton.icon(
-                          onPressed: () => _openEditProfile(user),
-                          icon: const Icon(
-                            Icons.edit_outlined,
-                            size: 16,
-                            color: AppColors.primaryGreen,
-                          ),
-                          label: const Text(
-                            'Edit Profil',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
-                              color: AppColors.primaryGreen,
-                            ),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            side: const BorderSide(
-                              color: AppColors.primaryGreen,
-                              width: 1.3,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(22),
-                            ),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 8,
+                        bottom: 6,
+                        child: Material(
+                          color: Colors.white,
+                          elevation: 1.5,
+                          shadowColor: Colors.black.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(20),
+                          child: InkWell(
+                            onTap: () => _openEditProfile(user),
+                            borderRadius: BorderRadius.circular(20),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: const Color(0xFFDCE4EC),
+                                  width: 1,
+                                ),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.edit_rounded,
+                                    size: 15,
+                                    color: AppColors.primaryGreen,
+                                  ),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    'Edit Profil',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 12.5,
+                                      color: AppColors.textPrimary,
+                                      letterSpacing: 0.1,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -672,6 +730,113 @@ class _AuthProfileTabState extends State<AuthProfileTab> {
             ),
           ),
 
+          if (user.canManageKost) ...[
+            const SizedBox(height: 12),
+
+            // Kelola Properti Card (hanya untuk Pemilik Properti, Staff, dan Administrator)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppColors.cardBorder),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFFE8F8EE), Color(0xFFD1FAE5)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.domain_rounded,
+                          color: AppColors.primaryGreen,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Manajemen Properti',
+                              style: TextStyle(
+                                fontSize: 15.5,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              user.canApproveProperties
+                                  ? 'Kelola & setujui pengajuan kost, apartemen, dan kontrakan.'
+                                  : 'Kelola unit kost, apartemen, dan kontrakan Anda.',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textSecondary,
+                                height: 1.35,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 46,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primaryGreen,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => ManagePropertiesScreen(user: user),
+                          ),
+                        );
+                      },
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.dashboard_customize_rounded, size: 19),
+                          SizedBox(width: 8),
+                          Text(
+                            'Buka Kelola Properti',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          ),
+                          SizedBox(width: 6),
+                          Icon(Icons.arrow_forward_rounded, size: 17),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            ),
+          ],
+
           if (user.isAdministrator) ...[
             const SizedBox(height: 12),
             Padding(
@@ -723,6 +888,94 @@ class _AuthProfileTabState extends State<AuthProfileTab> {
                         icon: const Icon(Icons.manage_accounts_rounded),
                         label: const Text(
                           'Manage User',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+
+          if (user.isPemilikKost || user.canApproveProperties) ...[
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppColors.cardBorder),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: AppColors.lightGreenBg,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(
+                            Icons.dynamic_feed_rounded,
+                            color: AppColors.primaryGreen,
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Postingan & Profil Publik',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                              Text(
+                                'Bagikan info kamar kosong, promo, atau update properti ke calon penyewa.',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 44,
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.primaryGreen,
+                          side: const BorderSide(color: AppColors.primaryGreen),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => OwnerProfileScreen(
+                                ownerId: user.id,
+                                initialOwnerName: user.name,
+                              ),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.storefront_outlined),
+                        label: const Text(
+                          'Kelola Postingan & Lihat Profil Publik',
                           style: TextStyle(fontWeight: FontWeight.w700),
                         ),
                       ),

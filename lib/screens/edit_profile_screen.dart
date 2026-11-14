@@ -7,6 +7,7 @@ import '../models/user_profile.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import '../utils/formatters.dart';
+import '../widgets/location_autocomplete_field.dart';
 
 class EditProfileScreen extends StatefulWidget {
   final UserProfile user;
@@ -27,7 +28,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late final TextEditingController _cityCtrl;
   late final TextEditingController _phoneCtrl;
 
-  late String _selectedRole;
   String? _avatarUrl;
   String? _coverUrl;
   File? _pickedAvatarFile;
@@ -44,7 +44,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _bioCtrl = TextEditingController(text: widget.user.bio);
     _cityCtrl = TextEditingController(text: widget.user.city);
     _phoneCtrl = TextEditingController(text: widget.user.phone);
-    _selectedRole = widget.user.normalizedRole;
     _avatarUrl = widget.user.avatarUrl;
     _coverUrl = widget.user.coverUrl;
   }
@@ -162,7 +161,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       await AuthService.updateCurrentUserProfile(
         name: _nameCtrl.text.trim(),
         phone: _phoneCtrl.text.trim(),
-        role: _selectedRole,
         username: _usernameCtrl.text.trim(),
         bio: _bioCtrl.text.trim(),
         city: _cityCtrl.text.trim(),
@@ -433,15 +431,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    TextFormField(
+                    LocationAutocompleteField(
                       controller: _cityCtrl,
-                      decoration: InputDecoration(
-                        labelText: 'Kota / Domisili',
-                        hintText: 'Misal: Malang, Jawa Timur',
-                        prefixIcon: const Icon(Icons.location_city_rounded),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
+                      type: LocationAutocompleteType.city,
+                      labelText: 'Kota / Domisili',
+                      hintText: 'Misal: Kota Malang',
+                      prefixIcon: const Icon(Icons.location_city_rounded),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
                     ),
                     const SizedBox(height: 14),
@@ -458,42 +455,29 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       ),
                     ),
                     const SizedBox(height: 14),
-                    DropdownButtonFormField<String>(
-                      value: (widget.user.isAdministrator
-                              ? ['ADMINISTRATOR', 'PEMILIK_KOST', 'PENYEWA']
-                              : ['PENYEWA', 'PEMILIK_KOST'])
-                          .contains(_selectedRole)
-                          ? _selectedRole
-                          : 'PENYEWA',
+                    InputDecorator(
                       decoration: InputDecoration(
                         labelText: 'Peran Pengguna',
                         prefixIcon: const Icon(Icons.badge_outlined),
+                        suffixIcon: const Icon(
+                          Icons.lock_outline_rounded,
+                          size: 18,
+                          color: AppColors.textSecondary,
+                        ),
+                        helperText:
+                            'Peran akun terkunci dan hanya dapat diubah oleh Staff/Admin.',
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      items: [
-                        if (widget.user.isAdministrator)
-                          const DropdownMenuItem(
-                            value: 'ADMINISTRATOR',
-                            child: Text('Administrator'),
-                          ),
-                        const DropdownMenuItem(
-                          value: 'PENYEWA',
-                          child: Text('Penyewa Kost'),
+                      child: Text(
+                        widget.user.roleLabel,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textPrimary,
                         ),
-                        const DropdownMenuItem(
-                          value: 'PEMILIK_KOST',
-                          child: Text('Pemilik Kost'),
-                        ),
-                      ],
-                      onChanged: widget.user.id == 1
-                          ? null
-                          : (v) {
-                              if (v != null) {
-                                setState(() => _selectedRole = v);
-                              }
-                            },
+                      ),
                     ),
                     const SizedBox(height: 20),
                     SizedBox(

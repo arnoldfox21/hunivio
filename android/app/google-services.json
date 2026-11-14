@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "292097748061",
+    "firebase_url": "https://kurniawantech-600d1.firebaseio.com",
+    "project_id": "kurniawantech-600d1",
+    "storage_bucket": "kurniawantech-600d1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:292097748061:android:f2811be37f6b17ce93f1b4",
+        "android_client_info": {
+          "package_name": "com.hunivio.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB9HuvvgfNbU4HG6qo8eVLUfDp0pUkHm9A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

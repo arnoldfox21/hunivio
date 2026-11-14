@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../services/auth_service.dart';
 import '../utils/formatters.dart';
+import '../widgets/animated_vectors.dart';
 import 'main_screen.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -28,19 +30,24 @@ class _SplashScreenState extends State<SplashScreen>
       CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
     );
     _controller.forward();
+    _bootstrapApp();
+  }
 
-    Timer(const Duration(milliseconds: 1400), () {
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        PageRouteBuilder(
-          transitionDuration: const Duration(milliseconds: 350),
-          pageBuilder: (_, __, ___) => const MainScreen(),
-          transitionsBuilder: (_, animation, __, child) {
-            return FadeTransition(opacity: animation, child: child);
-          },
-        ),
-      );
-    });
+  Future<void> _bootstrapApp() async {
+    await Future.wait([
+      Future.delayed(const Duration(milliseconds: 1300)),
+      AuthService.restoreAndRefreshSession(),
+    ]);
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 350),
+        pageBuilder: (_, __, ___) => const MainScreen(),
+        transitionsBuilder: (_, animation, __, child) {
+          return FadeTransition(opacity: animation, child: child);
+        },
+      ),
+    );
   }
 
   @override
@@ -65,8 +72,13 @@ class _SplashScreenState extends State<SplashScreen>
             ],
           ),
         ),
-        child: SafeArea(
-          child: Column(
+        child: Stack(
+          children: [
+            const AnimatedVectorBackdrop(),
+            SafeArea(
+              child: SizedBox(
+                width: double.infinity,
+                child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const Spacer(flex: 3),
@@ -93,14 +105,14 @@ class _SplashScreenState extends State<SplashScreen>
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(28),
                           child: Image.asset(
-                            'assets/images/hunigo_logo.png',
+                            'assets/images/hunivio_logo.png',
                             fit: BoxFit.cover,
                           ),
                         ),
                       ),
                       const SizedBox(height: 22),
                       const Text(
-                        'HuniGo',
+                        'HuniVio',
                         style: TextStyle(
                           fontSize: 34,
                           fontWeight: FontWeight.w800,
@@ -135,6 +147,9 @@ class _SplashScreenState extends State<SplashScreen>
               const SizedBox(height: 44),
             ],
           ),
+        ),
+      ),
+          ],
         ),
       ),
     );

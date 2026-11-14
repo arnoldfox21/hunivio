@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "HuniGo" "\0"
+            VALUE "FileDescription", "HuniVio" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "hunigo" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 HuniGo. All rights reserved." "\0"
-            VALUE "OriginalFilename", "hunigo.exe" "\0"
-            VALUE "ProductName", "HuniGo" "\0"
+            VALUE "InternalName", "hunivio" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 HuniVio. All rights reserved." "\0"
+            VALUE "OriginalFilename", "hunivio.exe" "\0"
+            VALUE "ProductName", "HuniVio" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

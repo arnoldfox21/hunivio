@@ -22,6 +22,7 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
   static const List<Map<String, String>> _roleOptions = [
     {'value': 'PENYEWA', 'label': 'Penyewa Kost'},
     {'value': 'PEMILIK_KOST', 'label': 'Pemilik Kost'},
+    {'value': 'STAFF', 'label': 'Staff'},
     {'value': 'ADMINISTRATOR', 'label': 'Administrator'},
   ];
 
@@ -73,13 +74,14 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
 
   Future<void> _updateUserRole(UserProfile user, String newRole) async {
     if (user.normalizedRole == newRole) return;
+    final current = AuthService.currentUserNotifier.value;
+    if (current == null) return;
     setState(() => _updatingUserIds.add(user.id));
     try {
-      final updated = await ApiService.updateUserProfile(
+      final updated = await ApiService.updateUserRole(
         userId: user.id,
-        name: user.name,
-        phone: user.phone,
         role: newRole,
+        requesterId: current.id,
       );
       if (!mounted) return;
       setState(() {
@@ -90,8 +92,7 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
         _updatingUserIds.remove(user.id);
       });
 
-      final current = AuthService.currentUserNotifier.value;
-      if (current != null && current.id == updated.id) {
+      if (current.id == updated.id) {
         AuthService.currentUserNotifier.value = updated;
       }
 
@@ -169,12 +170,14 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
 
   Color _roleBadgeBg(UserProfile user) {
     if (user.isAdministrator) return const Color(0xFFEDE9FE);
+    if (user.isStaff) return const Color(0xFFDBEAFE);
     if (user.isPemilikKost) return const Color(0xFFFEF3C7);
     return AppColors.lightGreenBg;
   }
 
   Color _roleBadgeFg(UserProfile user) {
     if (user.isAdministrator) return const Color(0xFF5B21B6);
+    if (user.isStaff) return const Color(0xFF1D4ED8);
     if (user.isPemilikKost) return const Color(0xFF92400E);
     return AppColors.darkGreen;
   }
@@ -244,6 +247,8 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                       _buildFilterChip('SEMUA', 'Semua (${_users.length})'),
                       const SizedBox(width: 8),
                       _buildFilterChip('ADMINISTRATOR', 'Administrator'),
+                      const SizedBox(width: 8),
+                      _buildFilterChip('STAFF', 'Staff'),
                       const SizedBox(width: 8),
                       _buildFilterChip('PEMILIK_KOST', 'Pemilik Kost'),
                       const SizedBox(width: 8),

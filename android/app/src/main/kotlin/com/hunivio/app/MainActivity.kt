@@ -1,4 +1,4 @@
-package com.hunigo.app
+package com.hunivio.app
 
 import android.Manifest
 import android.accounts.Account
@@ -22,7 +22,7 @@ import java.net.URLEncoder
 
 class MainActivity : FlutterActivity() {
     companion object {
-        private const val CHANNEL = "com.hunigo.app/google_auth"
+        private const val CHANNEL = "com.hunivio.app/google_auth"
         private const val REQ_PICK_GOOGLE_ACCOUNT = 9001
         private const val REQ_GET_ACCOUNTS_PERMISSION = 9002
     }
@@ -52,6 +52,25 @@ class MainActivity : FlutterActivity() {
                             pendingPickResult = null
                             result.error("LAUNCH_ERROR", e.localizedMessage, null)
                         }
+                    }
+                    "refreshGoogleAccount" -> {
+                        val email = call.argument<String>("email")?.trim()?.lowercase()
+                        if (email.isNullOrEmpty()) {
+                            result.success(null)
+                            return@setMethodCallHandler
+                        }
+                        val accounts = AccountManager.get(applicationContext).getAccountsByType("com.google")
+                        val stillExists = accounts.any { it.name.trim().equals(email, ignoreCase = true) }
+                        if (!stillExists) {
+                            result.success(null)
+                            return@setMethodCallHandler
+                        }
+                        Thread {
+                            val payload = resolveGoogleAccountProfile(email, fetchRemote = true)
+                            runOnUiThread {
+                                result.success(payload)
+                            }
+                        }.start()
                     }
                     else -> result.notImplemented()
                 }

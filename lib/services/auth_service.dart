@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_profile.dart';
 import 'api_service.dart';
 
@@ -17,8 +19,9 @@ class GoogleOAuthCredentials {
 }
 
 class AuthService {
-  static const MethodChannel _nativeGoogleChannel =
-      MethodChannel('com.hunigo.app/google_auth');
+  static const String _prefsLoggedInKey = 'hunivio_is_logged_in';
+  static const String _prefsUserKey = 'hunivio_cached_user';
+  static const String _prefsTokenKey = 'hunivio_auth_token';
 
   static final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: const ['email', 'profile'],
@@ -32,88 +35,138 @@ class AuthService {
 
   static UserProfile? get currentUser => currentUserNotifier.value;
 
-  static Future<UserProfile?> restoreSilentSession() async {
-    try {
-      final account = await _googleSignIn.signInSilently();
-      if (account == null) return null;
-      String? accessToken;
-      String? idToken;
-      try {
-        final auth = await account.authentication;
-        accessToken = auth.accessToken;
-        idToken = auth.idToken;
-      } catch (_) {}
+  static Future<void> _saveSession(
+    UserProfile user, {
+    String? accessToken,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_prefsLoggedInKey, true);
+    await prefs.setString(_prefsUserKey, jsonEncode(user.toJson()));
+    if (accessToken != null && accessToken.trim().isNotEmpty) {
+      await prefs.setString(_prefsTokenKey, accessToken.trim());
+      ApiService.setAuthToken(accessToken.trim());
+    }
+  }
 
-      final result = await ApiService.loginOrRegisterWithGoogle(
-        googleId: account.id,
-        email: account.email,
-        name: account.displayName ?? _deriveNameFromEmail(account.email),
-        avatarUrl: account.photoUrl ?? '',
-        accessToken: accessToken,
-        idToken: idToken,
-      );
-      currentUserNotifier.value = result.user;
-      return result.user;
+  static Future<void> _clearSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_prefsLoggedInKey);
+    await prefs.remove(_prefsUserKey);
+    await prefs.remove(_prefsTokenKey);
+    ApiService.setAuthToken(null);
+  }
+
+  static Future<UserProfile?> _loadCachedUser() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final isLoggedIn = prefs.getBool(_prefsLoggedInKey) ?? false;
+      if (!isLoggedIn) return null;
+      final token = prefs.getString(_prefsTokenKey);
+      if (token != null && token.trim().isNotEmpty) {
+        ApiService.setAuthToken(token.trim());
+      }
+      final raw = prefs.getString(_prefsUserKey);
+      if (raw == null || raw.trim().isEmpty) return null;
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      return UserProfile.fromJson(decoded);
     } catch (_) {
       return null;
     }
   }
 
+  /// Dipanggil setiap aplikasi pertama dibuka.
+  /// Mempertahankan sesi login tersimpan dan melakukan refresh token Google.
+  /// Jika refresh token gagal, sesi akan otomatis logout.
+  static Future<UserProfile?> restoreAndRefreshSession() async {
+    final cachedUser = await _loadCachedUser();
+    if (cachedUser == null) {
+      currentUserNotifier.value = null;
+      return null;
+    }
+
+    // Pertahankan status login sementara proses refresh token berjalan
+    currentUserNotifier.value = cachedUser;
+
+    try {
+      final account =
+          await _googleSignIn.signInSilently(reAuthenticate: true);
+      if (account == null) {
+        await signOut();
+        return null;
+      }
+
+      final auth = await account.authentication;
+      final accessToken = auth.accessToken?.trim();
+      final idToken = auth.idToken?.trim();
+
+      if ((accessToken == null || accessToken.isEmpty) &&
+          (idToken == null || idToken.isEmpty)) {
+        await signOut();
+        return null;
+      }
+
+      final displayName =
+          (account.displayName != null && account.displayName!.trim().isNotEmpty)
+              ? account.displayName!.trim()
+              : (cachedUser.name.isNotEmpty
+                  ? cachedUser.name
+                  : _deriveNameFromEmail(account.email));
+
+      final googlePhoto = account.photoUrl?.trim() ?? '';
+      final resolvedAvatar = googlePhoto.isNotEmpty
+          ? googlePhoto
+          : (cachedUser.avatarUrl.trim().isNotEmpty
+              ? cachedUser.avatarUrl.trim()
+              : _buildDefaultAvatarUrl(displayName));
+
+      final result = await ApiService.loginOrRegisterWithGoogle(
+        googleId: account.id,
+        email: account.email,
+        name: displayName,
+        avatarUrl: resolvedAvatar,
+        accessToken: accessToken,
+        idToken: idToken,
+      );
+
+      await _saveSession(result.user, accessToken: result.accessToken);
+      currentUserNotifier.value = result.user;
+      return result.user;
+    } catch (_) {
+      // Refresh token gagal -> logout otomatis
+      await signOut();
+      return null;
+    }
+  }
+
+  /// Alias kompatibilitas untuk pemanggil lama.
+  static Future<UserProfile?> restoreSilentSession() =>
+      restoreAndRefreshSession();
+
+  /// Login atau daftar menggunakan popup bawaan Google Sign-In
+  /// yang menampilkan foto profil, nama lengkap, dan email akun Google.
   static Future<GoogleAuthResult?> signInOrRegisterWithGoogle({
     BuildContext? context,
   }) async {
-    // Gunakan native Android Google Account Picker bawaan sistem agar semua akun tampil
-    // dan langsung memproses login tanpa terhalang ApiException: 10
-    if (!kIsWeb && Platform.isAndroid) {
-      try {
-        final selectedAccount = await _nativeGoogleChannel
-            .invokeMapMethod<String, dynamic>('pickGoogleAccount');
-
-        if (selectedAccount == null) {
-          // User membatalkan dialog pemilihan akun Google
-          return null;
-        }
-
-        final email = (selectedAccount['email'] ?? '').toString().trim();
-        final googleId = (selectedAccount['googleId'] ?? '').toString().trim();
-        final name = (selectedAccount['name'] ?? '').toString().trim();
-        final avatarUrl =
-            (selectedAccount['avatarUrl'] ?? '').toString().trim();
-        final accessToken =
-            (selectedAccount['accessToken'] ?? '').toString().trim();
-
-        if (email.isEmpty) {
-          return null;
-        }
-
-        final resolvedName =
-            name.isNotEmpty ? name : _deriveNameFromEmail(email);
-        final resolvedAvatar = avatarUrl.isNotEmpty
-            ? avatarUrl
-            : _buildDefaultAvatarUrl(resolvedName);
-
-        final result = await ApiService.loginOrRegisterWithGoogle(
-          googleId: googleId.isNotEmpty
-              ? googleId
-              : 'google_${email.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_')}',
-          email: email,
-          name: resolvedName,
-          avatarUrl: resolvedAvatar,
-          accessToken: accessToken.isNotEmpty ? accessToken : null,
-        );
-
-        currentUserNotifier.value = result.user;
-        return result;
-      } on MissingPluginException {
-        // Fallback ke GoogleSignIn jika aplikasi belum di-rebuild (masih hot reload)
-      }
-    }
-
     try {
       await _googleSignIn.signOut();
     } catch (_) {}
 
-    final account = await _googleSignIn.signIn();
+    final GoogleSignInAccount? account;
+    try {
+      account = await _googleSignIn.signIn();
+    } on PlatformException catch (e) {
+      if (e.code == 'sign_in_canceled') {
+        return null;
+      }
+      final detail = (e.message != null && e.message!.trim().isNotEmpty)
+          ? e.message!.trim()
+          : e.code;
+      throw Exception(
+        'Google Sign-In gagal ($detail). '
+        'Jika error ApiException 10, daftarkan package com.hunivio.app dan SHA-1 debug keystore di Google Cloud Console.',
+      );
+    }
+
     if (account == null) {
       return null;
     }
@@ -126,22 +179,27 @@ class AuthService {
       idToken = auth.idToken;
     } catch (_) {}
 
-    final fallbackName =
-        account.displayName ?? _deriveNameFromEmail(account.email);
-    final fallbackAvatar = (account.photoUrl != null &&
-            account.photoUrl!.trim().isNotEmpty)
-        ? account.photoUrl!.trim()
-        : _buildDefaultAvatarUrl(fallbackName);
+    final displayName =
+        (account.displayName != null && account.displayName!.trim().isNotEmpty)
+            ? account.displayName!.trim()
+            : _deriveNameFromEmail(account.email);
+
+    // Pastikan foto profil dari Google (account.photoUrl) disimpan saat pertama login
+    final googlePhoto = account.photoUrl?.trim() ?? '';
+    final resolvedAvatar = googlePhoto.isNotEmpty
+        ? googlePhoto
+        : _buildDefaultAvatarUrl(displayName);
 
     final result = await ApiService.loginOrRegisterWithGoogle(
       googleId: account.id,
       email: account.email,
-      name: fallbackName,
-      avatarUrl: fallbackAvatar,
+      name: displayName,
+      avatarUrl: resolvedAvatar,
       accessToken: accessToken,
       idToken: idToken,
     );
 
+    await _saveSession(result.user, accessToken: result.accessToken);
     currentUserNotifier.value = result.user;
     return result;
   }
@@ -163,7 +221,7 @@ class AuthService {
     if (words.isEmpty) {
       return localPart.isNotEmpty
           ? '${localPart[0].toUpperCase()}${localPart.substring(1)}'
-          : 'Pengguna HuniGo';
+          : 'Pengguna HuniVio';
     }
     return words
         .map((w) => '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}')
@@ -173,7 +231,7 @@ class AuthService {
   static Future<UserProfile> updateCurrentUserProfile({
     required String name,
     required String phone,
-    required String role,
+    String? role,
     String? username,
     String? bio,
     String? city,
@@ -195,14 +253,42 @@ class AuthService {
       avatarUrl: avatarUrl,
       coverUrl: coverUrl,
     );
+    await _saveSession(updated);
     currentUserNotifier.value = updated;
     return updated;
   }
 
+  static Future<UserProfile> completeOnboarding({
+    required String role,
+    String? preferredCategory,
+    String? city,
+    String? phone,
+  }) async {
+    final result = await ApiService.completeOnboarding(
+      role: role,
+      preferredCategory: preferredCategory,
+      city: city,
+      phone: phone,
+    );
+    await _saveSession(result.user, accessToken: result.accessToken);
+    currentUserNotifier.value = result.user;
+    return result.user;
+  }
+
   static Future<void> signOut() async {
+    final prevUser = currentUserNotifier.value;
+    if (prevUser != null) {
+      try {
+        await ApiService.updateUserFcmToken(
+          userId: prevUser.id,
+          fcmToken: '',
+        );
+      } catch (_) {}
+    }
     try {
       await _googleSignIn.signOut();
     } catch (_) {}
+    await _clearSession();
     currentUserNotifier.value = null;
   }
 }
