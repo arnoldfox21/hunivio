@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class AppColors {
   static const Color primaryGreen = Color(0xFF1BAA56);
@@ -75,4 +76,119 @@ IconData getFacilityIcon(String facility) {
   if (lower.contains('tv')) return Icons.tv_rounded;
   if (lower.contains('24 jam')) return Icons.access_time_filled_rounded;
   return Icons.check_circle_outline_rounded;
+}
+
+const MethodChannel _externalLauncherChannel =
+    MethodChannel('com.hunivio.app/launcher');
+
+String normalizeWhatsAppPhone(String rawPhone) {
+  var digits = rawPhone.replaceAll(RegExp(r'[^0-9]'), '');
+  if (digits.startsWith('0')) {
+    digits = '62${digits.substring(1)}';
+  } else if (digits.startsWith('8')) {
+    digits = '62$digits';
+  }
+  return digits;
+}
+
+String buildKostWhatsAppTemplate({
+  required String ownerName,
+  required String kostName,
+  required String propertyCategory,
+  required String kostType,
+  required String address,
+  required String district,
+  required String city,
+  required int pricePerMonth,
+}) {
+  final category = propertyCategory.trim().isNotEmpty
+      ? propertyCategory.trim().toLowerCase()
+      : 'properti';
+  final locationParts = [address, district, city]
+      .map((e) => e.trim())
+      .where((e) => e.isNotEmpty)
+      .join(', ');
+  return 'Halo Bapak/Ibu $ownerName, saya melihat $category '
+      '*$kostName* ($kostType) di aplikasi *HuniVio*.\n\n'
+      'Lokasi: $locationParts\n'
+      'Harga: ${formatRupiah(pricePerMonth)}/bulan\n\n'
+      'Apakah masih ada kamar/unit yang tersedia dan boleh tanya info lebih lanjut? Terima kasih.';
+}
+
+Future<void> openWhatsAppChat({
+  required String phone,
+  required String message,
+}) async {
+  final normalized = normalizeWhatsAppPhone(phone);
+  if (normalized.isEmpty) {
+    throw Exception('Nomor WhatsApp pemilik belum tersedia.');
+  }
+  final url =
+      'https://wa.me/$normalized?text=${Uri.encodeComponent(message)}';
+  await _externalLauncherChannel.invokeMethod('openExternalUrl', {'url': url});
+}
+
+Future<void> openGoogleMapsLocation({
+  required double latitude,
+  required double longitude,
+  String? label,
+}) async {
+  final encodedLabel = (label != null && label.trim().isNotEmpty)
+      ? '(${Uri.encodeComponent(label.trim())})'
+      : '';
+  final geoUrl =
+      'geo:$latitude,$longitude?q=$latitude,$longitude$encodedLabel';
+  final webUrl =
+      'https://www.google.com/maps/search/?api=1&query=$latitude,$longitude';
+  try {
+    await _externalLauncherChannel
+        .invokeMethod('openExternalUrl', {'url': geoUrl});
+  } catch (_) {
+    await _externalLauncherChannel
+        .invokeMethod('openExternalUrl', {'url': webUrl});
+  }
+}
+
+Future<void> shareTextContent({
+  required String text,
+  String? subject,
+}) async {
+  await _externalLauncherChannel.invokeMethod('shareText', {
+    'text': text,
+    if (subject != null && subject.trim().isNotEmpty) 'subject': subject.trim(),
+  });
+}
+
+String buildKostShareText({
+  required String kostName,
+  required String propertyCategory,
+  required String kostType,
+  required int pricePerMonth,
+  required String address,
+  required String district,
+  required String city,
+  required double rating,
+  double? latitude,
+  double? longitude,
+}) {
+  final category = propertyCategory.trim().isNotEmpty
+      ? propertyCategory.trim()
+      : 'Properti';
+  final location = [address, district, city]
+      .map((e) => e.trim())
+      .where((e) => e.isNotEmpty)
+      .join(', ');
+  final buffer = StringBuffer()
+    ..writeln('Rekomendasi $category di HuniVio:')
+    ..writeln('*$kostName* ($kostType)')
+    ..writeln('Harga: ${formatRupiah(pricePerMonth)}/bulan')
+    ..writeln('Rating: ${rating.toStringAsFixed(1)}/5.0')
+    ..writeln('Lokasi: $location');
+  if (latitude != null && longitude != null) {
+    buffer.writeln(
+      'Google Maps: https://www.google.com/maps/search/?api=1&query=$latitude,$longitude',
+    );
+  }
+  buffer.write('\nTemukan hunian nyaman lainnya di aplikasi HuniVio!');
+  return buffer.toString();
 }

@@ -5,6 +5,7 @@ import '../services/auth_service.dart';
 import '../utils/formatters.dart';
 import '../widgets/animated_vectors.dart';
 import 'edit_profile_screen.dart';
+import 'email_login_screen.dart';
 import 'manage_properties_screen.dart';
 import 'manage_users_screen.dart';
 import 'onboarding_wizard_screen.dart';
@@ -64,6 +65,264 @@ class _AuthProfileTabState extends State<AuthProfileTab> {
         setState(() => _loadingGoogle = false);
       }
     }
+  }
+
+  Future<void> _handleEmailAuth() async {
+    final result = await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const EmailLoginScreen()),
+    );
+    if (!mounted || result == null) return;
+    if (!result.user.onboardingCompleted) {
+      await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => OnboardingWizardScreen(user: result.user),
+        ),
+      );
+      if (!mounted) return;
+    }
+    final currentUser = AuthService.currentUserNotifier.value ?? result.user;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: AppColors.primaryGreen,
+        content: Text(
+          'Berhasil masuk sebagai ${currentUser.name} (${currentUser.email}).',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openSecuritySettingsSheet(UserProfile user) async {
+    final formKey = GlobalKey<FormState>();
+    final currentPassCtrl = TextEditingController();
+    final newPassCtrl = TextEditingController();
+    final confirmPassCtrl = TextEditingController();
+    bool obscureCurrent = true;
+    bool obscureNew = true;
+    bool obscureConfirm = true;
+    bool saving = false;
+    String? errorMsg;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            16,
+            20,
+            MediaQuery.of(ctx).viewInsets.bottom + 24,
+          ),
+          child: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Keamanan Akun',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(ctx).pop(),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    user.hasPassword
+                        ? 'Ubah password akun Anda untuk login menggunakan email (${user.email}).'
+                        : 'Atur password agar Anda dapat masuk menggunakan email (${user.email}) tanpa harus melalui Google.',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      color: Colors.grey.shade700,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  if (user.hasPassword) ...[
+                    TextFormField(
+                      controller: currentPassCtrl,
+                      obscureText: obscureCurrent,
+                      decoration: InputDecoration(
+                        labelText: 'Password Saat Ini',
+                        prefixIcon: const Icon(Icons.lock_outline_rounded),
+                        suffixIcon: IconButton(
+                          onPressed: () => setModalState(
+                            () => obscureCurrent = !obscureCurrent,
+                          ),
+                          icon: Icon(
+                            obscureCurrent
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
+                          ),
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      validator: (v) => (v == null || v.isEmpty)
+                          ? 'Masukkan password saat ini'
+                          : null,
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  TextFormField(
+                    controller: newPassCtrl,
+                    obscureText: obscureNew,
+                    decoration: InputDecoration(
+                      labelText: user.hasPassword
+                          ? 'Password Baru'
+                          : 'Password Baru (min. 6 karakter)',
+                      prefixIcon: const Icon(Icons.vpn_key_outlined),
+                      suffixIcon: IconButton(
+                        onPressed: () =>
+                            setModalState(() => obscureNew = !obscureNew),
+                        icon: Icon(
+                          obscureNew
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                        ),
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    validator: (v) {
+                      if (v == null || v.length < 6) {
+                        return 'Password minimal 6 karakter';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: confirmPassCtrl,
+                    obscureText: obscureConfirm,
+                    decoration: InputDecoration(
+                      labelText: 'Konfirmasi Password Baru',
+                      prefixIcon: const Icon(Icons.check_circle_outline),
+                      suffixIcon: IconButton(
+                        onPressed: () => setModalState(
+                          () => obscureConfirm = !obscureConfirm,
+                        ),
+                        icon: Icon(
+                          obscureConfirm
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                        ),
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    validator: (v) {
+                      if (v != newPassCtrl.text) {
+                        return 'Konfirmasi password tidak cocok';
+                      }
+                      return null;
+                    },
+                  ),
+                  if (errorMsg != null) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      errorMsg!,
+                      style: TextStyle(
+                        color: Colors.red.shade700,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primaryGreen,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: saving
+                          ? null
+                          : () async {
+                              if (!formKey.currentState!.validate()) return;
+                              setModalState(() {
+                                saving = true;
+                                errorMsg = null;
+                              });
+                              try {
+                                await AuthService.setOrChangePassword(
+                                  currentPassword: user.hasPassword
+                                      ? currentPassCtrl.text
+                                      : null,
+                                  newPassword: newPassCtrl.text,
+                                );
+                                if (!ctx.mounted) return;
+                                Navigator.of(ctx).pop();
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    backgroundColor: AppColors.primaryGreen,
+                                    content: Text(
+                                      user.hasPassword
+                                          ? 'Password berhasil diperbarui.'
+                                          : 'Password berhasil diatur! Anda kini dapat login dengan email.',
+                                    ),
+                                  ),
+                                );
+                              } catch (e) {
+                                setModalState(() {
+                                  saving = false;
+                                  errorMsg = e
+                                      .toString()
+                                      .replaceFirst('Exception: ', '');
+                                });
+                              }
+                            },
+                      child: saving
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Text(
+                              user.hasPassword
+                                  ? 'Simpan Password Baru'
+                                  : 'Atur Password',
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    currentPassCtrl.dispose();
+    newPassCtrl.dispose();
+    confirmPassCtrl.dispose();
   }
 
   Future<void> _openEditProfile(UserProfile user) async {
@@ -291,6 +550,25 @@ class _AuthProfileTabState extends State<AuthProfileTab> {
                         : const Icon(Icons.login_rounded),
                     label: const Text(
                       'Masuk dengan Google',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: 48,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.textPrimary,
+                      side: BorderSide(color: Colors.grey.shade300),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onPressed: _loadingGoogle ? null : _handleEmailAuth,
+                    icon: const Icon(Icons.email_outlined),
+                    label: const Text(
+                      'Masuk dengan Email',
                       style: TextStyle(fontWeight: FontWeight.w700),
                     ),
                   ),
@@ -726,6 +1004,57 @@ class _AuthProfileTabState extends State<AuthProfileTab> {
                     onTap: () => _openEditProfile(user),
                   ),
                 ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          // Keamanan Akun (Security Setting)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppColors.cardBorder),
+              ),
+              child: ListTile(
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.lightGreenBg,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.security_rounded,
+                    color: AppColors.primaryGreen,
+                    size: 22,
+                  ),
+                ),
+                title: const Text(
+                  'Keamanan Akun',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14.5,
+                  ),
+                ),
+                subtitle: Text(
+                  user.hasPassword
+                      ? 'Password sudah diatur • Ketuk untuk ubah password'
+                      : 'Belum ada password • Atur password untuk login email',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                trailing: const Icon(
+                  Icons.chevron_right_rounded,
+                  color: AppColors.primaryGreen,
+                ),
+                onTap: () => _openSecuritySettingsSheet(user),
               ),
             ),
           ),

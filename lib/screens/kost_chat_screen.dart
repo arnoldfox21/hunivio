@@ -10,11 +10,13 @@ import '../utils/formatters.dart';
 class KostChatScreen extends StatefulWidget {
   final Kost kost;
   final int? peerUserId;
+  final String? peerName;
 
   const KostChatScreen({
     super.key,
     required this.kost,
     this.peerUserId,
+    this.peerName,
   });
 
   @override
@@ -33,6 +35,8 @@ class _KostChatScreenState extends State<KostChatScreen> {
   int _emojiCategoryIndex = 0;
   io.Socket? _socket;
   bool _socketConnected = false;
+  String? _fetchedPeerName;
+  bool _addingToGroup = false;
 
   static const List<Map<String, dynamic>> _emojiCategories = [
     {
@@ -47,7 +51,7 @@ class _KostChatScreenState extends State<KostChatScreen> {
     },
     {
       'icon': '🏠',
-      'label': 'Kost & Lokasi',
+      'label': 'Hunian & Lokasi',
       'emojis': [
         '🏠', '🏡', '🏢', '🛏️', '🛋️', '🚿', '🛁', '🚽',
         '🔑', '🗝️', '🚪', '🪟', '❄️', '📶', '⚡', '💡',
@@ -67,27 +71,65 @@ class _KostChatScreenState extends State<KostChatScreen> {
   ];
 
   static const List<String> _tenantQuickReplies = [
-    'Halo, apakah kamar masih tersedia? 🏠',
+    'Halo, apakah unit masih tersedia? 🏠',
     'Boleh survei lokasi hari ini? 📍',
     'Apakah listrik sudah termasuk? ⚡',
-    'Ada diskon untuk sewa 6 bulan? 💰',
+    'Ada diskon untuk sewa lebih lama? 💰',
+  ];
+
+  static const List<String> _dailyTenantQuickReplies = [
+    'Halo, apakah unit tersedia untuk tanggal ini? 🏡',
+    'Boleh tanya jam check-in & check-out? 🕒',
+    'Apakah bisa untuk rombongan / keluarga? 👨‍👩‍👧‍👦',
+    'Lokasi dekat wisata mana saja ya? 📍',
   ];
 
   static const List<String> _ownerQuickReplies = [
-    'Halo, kamar masih tersedia ya! 😊',
+    'Halo, unit masih tersedia ya! 😊',
     'Silakan datang survei lokasi, kabari jamnya ya 📍',
     'Boleh kak, rencana mulai sewa kapan? 🗓️',
-    'Harga sudah termasuk WiFi & fasilitas kamar 👍',
+    'Harga sudah termasuk WiFi & fasilitas yang tertera 👍',
   ];
 
-  List<String> get _quickReplies =>
-      _senderId == widget.kost.ownerId
-          ? _ownerQuickReplies
-          : _tenantQuickReplies;
+  static const List<String> _dailyOwnerQuickReplies = [
+    'Halo, unit tersedia ya! Mau menginap tanggal berapa? 🏡',
+    'Check-in mulai 14.00 WIB & check-out 12.00 WIB 🕒',
+    'Silakan infokan jumlah tamu ya kak 😊',
+    'Harga sudah termasuk WiFi & seluruh fasilitas unit 👍',
+  ];
+
+  List<String> get _quickReplies {
+    final isDaily = widget.kost.isDailyStay;
+    if (_senderId == widget.kost.ownerId) {
+      return isDaily ? _dailyOwnerQuickReplies : _ownerQuickReplies;
+    }
+    return isDaily ? _dailyTenantQuickReplies : _tenantQuickReplies;
+  }
 
   int get _senderId => AuthService.currentUser?.id ?? 0;
   String get _senderName => AuthService.currentUser?.name ?? 'Tamu HuniVio';
   String get _senderAvatar => AuthService.currentUser?.avatarUrl ?? '';
+  bool get _isOwner => _senderId > 0 && _senderId == widget.kost.ownerId;
+
+  String get _resolvedPeerName {
+    if (!_isOwner) return widget.kost.ownerName;
+    if (widget.peerName != null && widget.peerName!.trim().isNotEmpty) {
+      return widget.peerName!.trim();
+    }
+    if (_fetchedPeerName != null && _fetchedPeerName!.trim().isNotEmpty) {
+      return _fetchedPeerName!.trim();
+    }
+    final peerId = _resolvedReceiverId;
+    for (final m in _messages.reversed) {
+      if (m.senderId == peerId && m.senderName.trim().isNotEmpty) {
+        return m.senderName.trim();
+      }
+      if (m.senderId != _senderId && m.senderName.trim().isNotEmpty) {
+        return m.senderName.trim();
+      }
+    }
+    return 'Calon Penyewa';
+  }
 
   int get _resolvedReceiverId {
     if (widget.peerUserId != null &&
@@ -111,6 +153,7 @@ class _KostChatScreenState extends State<KostChatScreen> {
     NotificationService.activeChatKostId = widget.kost.id;
     _loadMessages();
     _initSocket();
+    _resolvePeerProfile();
     _focusNode.addListener(() {
       if (_focusNode.hasFocus && _showEmojiPicker) {
         setState(() => _showEmojiPicker = false);
@@ -256,6 +299,56 @@ class _KostChatScreenState extends State<KostChatScreen> {
     );
   }
 
+  Future<void> _resolvePeerProfile() async {
+    if (!_isOwner) return;
+    if (widget.peerName != null && widget.peerName!.trim().isNotEmpty) return;
+    final peerId = _resolvedReceiverId;
+    if (peerId <= 0 || peerId == _senderId) return;
+    try {
+      final profile = await ApiService.fetchUserById(peerId);
+      if (!mounted) return;
+      if (profile.name.trim().isNotEmpty) {
+        setState(() => _fetchedPeerName = profile.name.trim());
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _addPeerToGroup() async {
+    final peerId = _resolvedReceiverId;
+    if (!_isOwner || peerId <= 0 || peerId == _senderId || _addingToGroup) {
+      return;
+    }
+    setState(() => _addingToGroup = true);
+    try {
+      await ApiService.addGroupMember(
+        kostId: widget.kost.id,
+        adminId: _senderId,
+        targetUserId: peerId,
+      );
+      if (!mounted) return;
+      setState(() => _addingToGroup = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.primaryGreen,
+          content: Text(
+            '$_resolvedPeerName berhasil ditambahkan ke grup penghuni!',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _addingToGroup = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red.shade700,
+          content: Text(
+            'Gagal menambahkan ke grup: ${e.toString().replaceFirst('Exception: ', '')}',
+          ),
+        ),
+      );
+    }
+  }
+
   Future<void> _sendMessage([String? preset]) async {
     final text = (preset ?? _msgCtrl.text).trim();
     if (text.isEmpty || _sending) return;
@@ -334,8 +427,8 @@ class _KostChatScreenState extends State<KostChatScreen> {
               radius: 18,
               backgroundColor: AppColors.lightGreenBg,
               child: Text(
-                widget.kost.ownerName.isNotEmpty
-                    ? widget.kost.ownerName[0].toUpperCase()
+                _resolvedPeerName.isNotEmpty
+                    ? _resolvedPeerName[0].toUpperCase()
                     : 'P',
                 style: const TextStyle(
                   color: AppColors.primaryGreen,
@@ -349,7 +442,7 @@ class _KostChatScreenState extends State<KostChatScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    widget.kost.ownerName,
+                    _resolvedPeerName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -359,7 +452,7 @@ class _KostChatScreenState extends State<KostChatScreen> {
                     ),
                   ),
                   Text(
-                    'Pemilik • ${widget.kost.name}',
+                    '${_isOwner ? 'Penyewa' : 'Pemilik'} • ${widget.kost.name}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -374,6 +467,23 @@ class _KostChatScreenState extends State<KostChatScreen> {
           ],
         ),
         actions: [
+          if (_isOwner &&
+              _resolvedReceiverId > 0 &&
+              _resolvedReceiverId != _senderId)
+            IconButton(
+              tooltip: 'Tambahkan ke Grup Penghuni',
+              onPressed: _addingToGroup ? null : _addPeerToGroup,
+              icon: _addingToGroup
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(
+                      Icons.group_add_rounded,
+                      color: AppColors.primaryGreen,
+                    ),
+            ),
           IconButton(
             tooltip: 'Muat ulang chat',
             onPressed: _loadMessages,
@@ -421,7 +531,7 @@ class _KostChatScreenState extends State<KostChatScreen> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '${formatRupiah(widget.kost.pricePerMonth)}/bln • ${widget.kost.district}',
+                        '${formatRupiah(widget.kost.displayPrice)}${widget.kost.displayPriceShortUnit} • ${widget.kost.district}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -467,7 +577,7 @@ class _KostChatScreenState extends State<KostChatScreen> {
                               ),
                               const SizedBox(height: 12),
                               Text(
-                                'Mulai obrolan dengan ${widget.kost.ownerName}',
+                                'Mulai obrolan dengan $_resolvedPeerName',
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
                                   fontSize: 15,

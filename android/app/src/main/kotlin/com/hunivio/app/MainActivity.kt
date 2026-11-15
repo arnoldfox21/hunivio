@@ -6,6 +6,7 @@ import android.accounts.AccountManager
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.provider.ContactsContract
 import androidx.core.app.ActivityCompat
@@ -71,6 +72,51 @@ class MainActivity : FlutterActivity() {
                                 result.success(payload)
                             }
                         }.start()
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.hunivio.app/launcher")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "openExternalUrl" -> {
+                        val url = call.argument<String>("url")?.trim()
+                        if (url.isNullOrEmpty()) {
+                            result.error("INVALID_URL", "URL kosong", null)
+                            return@setMethodCallHandler
+                        }
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            startActivity(intent)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("LAUNCH_ERROR", e.localizedMessage ?: "Gagal membuka URL", null)
+                        }
+                    }
+                    "shareText" -> {
+                        val text = call.argument<String>("text")?.trim()
+                        val subject = call.argument<String>("subject")?.trim()
+                        if (text.isNullOrEmpty()) {
+                            result.error("INVALID_TEXT", "Teks kosong", null)
+                            return@setMethodCallHandler
+                        }
+                        try {
+                            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, text)
+                                if (!subject.isNullOrEmpty()) {
+                                    putExtra(Intent.EXTRA_SUBJECT, subject)
+                                }
+                            }
+                            val chooser = Intent.createChooser(sendIntent, subject ?: "Bagikan Properti")
+                            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            startActivity(chooser)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("SHARE_ERROR", e.localizedMessage ?: "Gagal membagikan", null)
+                        }
                     }
                     else -> result.notImplemented()
                 }

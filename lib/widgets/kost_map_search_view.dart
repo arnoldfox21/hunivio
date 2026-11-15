@@ -555,7 +555,7 @@ class _KostMapSearchViewState extends State<KostMapSearchView> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          '${formatRupiah(kost.pricePerMonth)}/bln',
+                          '${formatRupiah(kost.displayPrice)}${kost.displayPriceShortUnit}',
                           style: const TextStyle(
                             fontWeight: FontWeight.w800,
                             fontSize: 13.5,

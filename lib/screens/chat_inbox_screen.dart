@@ -344,6 +344,10 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
                                         peerUserId: candidatePeer != user.id
                                             ? candidatePeer
                                             : null,
+                                        peerName: msg.senderId != user.id &&
+                                                msg.senderName.trim().isNotEmpty
+                                            ? msg.senderName.trim()
+                                            : null,
                                       ),
                                     ),
                                   );

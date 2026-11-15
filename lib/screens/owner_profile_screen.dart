@@ -7,8 +7,11 @@ import '../models/user_profile.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import '../utils/formatters.dart';
+import '../widgets/full_screen_image_viewer.dart';
+import '../widgets/owner_post_card.dart';
 import 'kost_chat_screen.dart';
 import 'kost_detail_screen.dart';
+import 'post_detail_screen.dart';
 
 class OwnerProfileScreen extends StatefulWidget {
   final int ownerId;
@@ -32,6 +35,7 @@ class _OwnerProfileScreenState extends State<OwnerProfileScreen>
   final ImagePicker _picker = ImagePicker();
 
   bool _loading = true;
+  bool _updatingWhatsappSetting = false;
   String? _error;
   UserProfile? _owner;
   List<OwnerPost> _posts = [];
@@ -68,7 +72,10 @@ class _OwnerProfileScreenState extends State<OwnerProfileScreen>
     try {
       final results = await Future.wait<dynamic>([
         ApiService.fetchUserById(widget.ownerId),
-        ApiService.fetchOwnerPosts(widget.ownerId),
+        ApiService.fetchOwnerPosts(
+          widget.ownerId,
+          viewerId: AuthService.currentUser?.id,
+        ),
         ApiService.fetchKosts(ownerId: widget.ownerId),
       ]);
       if (!mounted) return;
@@ -127,29 +134,26 @@ class _OwnerProfileScreenState extends State<OwnerProfileScreen>
     );
   }
 
-  String _formatDate(String iso) {
-    final dt = DateTime.tryParse(iso)?.toLocal();
-    if (dt == null) return '';
-    final diff = DateTime.now().difference(dt);
-    if (diff.inMinutes < 1) return 'Baru saja';
-    if (diff.inMinutes < 60) return '${diff.inMinutes} mnt lalu';
-    if (diff.inHours < 24) return '${diff.inHours} jam lalu';
-    if (diff.inDays < 7) return '${diff.inDays} hari lalu';
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'Mei',
-      'Jun',
-      'Jul',
-      'Agu',
-      'Sep',
-      'Okt',
-      'Nov',
-      'Des',
-    ];
-    return '${dt.day} ${months[dt.month - 1]} ${dt.year}';
+  Future<void> _openWhatsAppOwner() async {
+    final owner = _owner;
+    if (owner == null || owner.phone.trim().isEmpty) return;
+    try {
+      await openWhatsAppChat(
+        phone: owner.phone,
+        message:
+            'Halo ${owner.name}, saya melihat profil Anda di HuniVio dan ingin menanyakan informasi kamar/properti yang tersedia.',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red.shade700,
+          content: Text(
+            e.toString().replaceFirst('Exception: ', ''),
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _openPostEditor({OwnerPost? existing}) async {
@@ -528,6 +532,33 @@ class _OwnerProfileScreenState extends State<OwnerProfileScreen>
         'https://ui-avatars.com/api/?name=${Uri.encodeComponent(owner.name.isNotEmpty ? owner.name : 'Pemilik')}&background=1BAA56&color=ffffff&size=256&bold=true&format=png';
     final avatarUrl =
         owner.avatarUrl.trim().isNotEmpty ? owner.avatarUrl.trim() : fallbackAvatar;
+    final hasCover = owner.coverUrl.trim().isNotEmpty;
+
+    final totalAvailableRooms =
+        _properties.fold<int>(0, (sum, k) => sum + k.availableRooms);
+    final totalReviews =
+        _properties.fold<int>(0, (sum, k) => sum + k.reviewCount);
+    final reviewedProperties =
+        _properties.where((k) => k.reviewCount > 0).toList();
+    final avgRating = reviewedProperties.isEmpty
+        ? 0.0
+        : reviewedProperties.fold<double>(0, (sum, k) => sum + k.rating) /
+            reviewedProperties.length;
+    final minPrice = _properties.isEmpty
+        ? 0
+        : _properties
+            .map((k) => k.pricePerMonth)
+            .reduce((a, b) => a < b ? a : b);
+    final serviceAreas = _properties
+        .map((k) => k.district.trim())
+        .where((d) => d.isNotEmpty)
+        .toSet()
+        .take(3)
+        .join(', ');
+    final isVerifiedOwner =
+        owner.canManageKost || _properties.any((k) => k.isVerified);
+    final canWhatsApp =
+        !_isOwnProfile && owner.showWhatsapp && owner.phone.trim().isNotEmpty;
 
     return Container(
       color: Colors.white,
@@ -537,66 +568,127 @@ class _OwnerProfileScreenState extends State<OwnerProfileScreen>
           Stack(
             clipBehavior: Clip.none,
             children: [
-              Container(
-                height: 120,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [AppColors.primaryGreen, AppColors.darkGreen],
-                  ),
-                  image: owner.coverUrl.trim().isNotEmpty
-                      ? DecorationImage(
-                          image: NetworkImage(owner.coverUrl.trim()),
-                          fit: BoxFit.cover,
+              GestureDetector(
+                onTap: hasCover
+                    ? () => FullScreenImageViewer.open(
+                          context,
+                          imageUrl: owner.coverUrl.trim(),
+                          heroTag: 'owner-cover-${owner.id}',
                         )
-                      : null,
+                    : null,
+                child: Container(
+                  height: 145,
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [AppColors.primaryGreen, AppColors.darkGreen],
+                    ),
+                    image: hasCover
+                        ? DecorationImage(
+                            image: NetworkImage(owner.coverUrl.trim()),
+                            fit: BoxFit.cover,
+                          )
+                        : null,
+                  ),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withOpacity(0.05),
+                          Colors.black.withOpacity(0.28),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
               ),
               Positioned(
                 left: 16,
-                bottom: -36,
-                child: CircleAvatar(
-                  radius: 40,
-                  backgroundColor: Colors.white,
-                  child: CircleAvatar(
-                    radius: 37,
-                    backgroundImage: NetworkImage(avatarUrl),
+                bottom: -38,
+                child: GestureDetector(
+                  onTap: () => FullScreenImageViewer.open(
+                    context,
+                    imageUrl: avatarUrl,
+                    heroTag: 'owner-avatar-${owner.id}',
+                  ),
+                  child: Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.10),
+                          blurRadius: 10,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: CircleAvatar(
+                      radius: 38,
+                      backgroundImage: NetworkImage(avatarUrl),
+                    ),
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 44),
+          const SizedBox(height: 46),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            owner.name,
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.textPrimary,
-                            ),
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  owner.name,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
+                              ),
+                              if (isVerifiedOwner) ...[
+                                const SizedBox(width: 6),
+                                const Icon(
+                                  Icons.verified_rounded,
+                                  size: 19,
+                                  color: AppColors.primaryGreen,
+                                ),
+                              ],
+                            ],
                           ),
-                          if (owner.username.trim().isNotEmpty)
+                          if (owner.username.trim().isNotEmpty) ...[
+                            const SizedBox(height: 2),
                             Text(
                               '@${owner.username.replaceAll(RegExp(r'^@+'), '')}',
                               style: const TextStyle(
                                 fontSize: 13,
                                 color: AppColors.textSecondary,
+                                fontWeight: FontWeight.w500,
                               ),
                             ),
+                          ],
                         ],
                       ),
                     ),
+                    const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 10,
@@ -605,6 +697,9 @@ class _OwnerProfileScreenState extends State<OwnerProfileScreen>
                       decoration: BoxDecoration(
                         color: AppColors.lightGreenBg,
                         borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: AppColors.primaryGreen.withOpacity(0.25),
+                        ),
                       ),
                       child: Text(
                         owner.roleLabel,
@@ -617,56 +712,174 @@ class _OwnerProfileScreenState extends State<OwnerProfileScreen>
                     ),
                   ],
                 ),
-                if (owner.city.trim().isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      const Icon(
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 6,
+                  children: [
+                    if (owner.city.trim().isNotEmpty)
+                      _buildInfoMetaItem(
                         Icons.location_on_outlined,
-                        size: 15,
-                        color: AppColors.textSecondary,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
                         owner.city.trim(),
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: AppColors.textSecondary,
-                        ),
+                      ),
+                    if (serviceAreas.isNotEmpty)
+                      _buildInfoMetaItem(
+                        Icons.map_outlined,
+                        'Area: $serviceAreas',
+                      ),
+                    if (minPrice > 0)
+                      _buildInfoMetaItem(
+                        Icons.payments_outlined,
+                        'Mulai ${formatRupiah(minPrice)}/bln',
+                      ),
+                  ],
+                ),
+                if (owner.bio.trim().isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.cardBorder),
+                    ),
+                    child: Text(
+                      owner.bio.trim(),
+                      style: const TextStyle(
+                        fontSize: 13.5,
+                        height: 1.45,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 12,
+                    horizontal: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppColors.cardBorder),
+                  ),
+                  child: Row(
+                    children: [
+                      _buildOwnerStatItem(
+                        value: '${_properties.length}',
+                        label: 'Properti',
+                      ),
+                      _buildStatDivider(),
+                      _buildOwnerStatItem(
+                        value: '$totalAvailableRooms',
+                        label: 'Kamar Kosong',
+                        highlight: totalAvailableRooms > 0,
+                      ),
+                      _buildStatDivider(),
+                      _buildOwnerStatItem(
+                        value: totalReviews == 0
+                            ? '-'
+                            : '${avgRating.toStringAsFixed(1)}★',
+                        label: '$totalReviews Ulasan',
+                      ),
+                      _buildStatDivider(),
+                      _buildOwnerStatItem(
+                        value: '${_posts.length}',
+                        label: 'Postingan',
                       ),
                     ],
                   ),
-                ],
-                if (owner.bio.trim().isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    owner.bio.trim(),
-                    style: const TextStyle(
-                      fontSize: 13.5,
-                      height: 1.45,
-                      color: AppColors.textPrimary,
+                ),
+                if (_isOwnProfile && owner.canManageKost) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceBg,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.cardBorder),
+                    ),
+                    child: SwitchListTile.adaptive(
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 2,
+                      ),
+                      activeColor: AppColors.primaryGreen,
+                      secondary: const Icon(
+                        Icons.chat_rounded,
+                        color: Color(0xFF25D366),
+                      ),
+                      title: const Text(
+                        'Tampilkan No. WhatsApp di Properti',
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      subtitle: const Text(
+                        'Aktifkan agar penyewa bisa chat langsung ke WhatsApp Anda.',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      value: owner.showWhatsapp,
+                      onChanged: _updatingWhatsappSetting
+                          ? null
+                          : _toggleShowWhatsapp,
                     ),
                   ),
                 ],
                 if (!_isOwnProfile) ...[
                   const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.primaryGreen,
-                        side: const BorderSide(color: AppColors.primaryGreen),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primaryGreen,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          onPressed: _openChatWithOwner,
+                          icon: const Icon(
+                            Icons.chat_bubble_outline_rounded,
+                            size: 18,
+                          ),
+                          label: const Text(
+                            'Chat Pemilik',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
                         ),
                       ),
-                      onPressed: _openChatWithOwner,
-                      icon: const Icon(Icons.chat_bubble_outline_rounded),
-                      label: const Text(
-                        'Chat Pemilik',
-                        style: TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                    ),
+                      if (canWhatsApp) ...[
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF15803D),
+                              side: const BorderSide(color: Color(0xFF25D366)),
+                              backgroundColor: const Color(0xFFF0FDF4),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            onPressed: _openWhatsAppOwner,
+                            icon: const Icon(Icons.chat_rounded, size: 18),
+                            label: const Text(
+                              'WhatsApp',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ],
                 const SizedBox(height: 14),
@@ -676,6 +889,193 @@ class _OwnerProfileScreenState extends State<OwnerProfileScreen>
         ],
       ),
     );
+  }
+
+  Widget _buildInfoMetaItem(IconData icon, String text) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: AppColors.textSecondary),
+        const SizedBox(width: 4),
+        Flexible(
+          child: Text(
+            text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 12.5,
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatDivider() {
+    return Container(
+      height: 26,
+      width: 1,
+      color: AppColors.cardBorder,
+    );
+  }
+
+  Widget _buildOwnerStatItem({
+    required String value,
+    required String label,
+    bool highlight = false,
+  }) {
+    return Expanded(
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 15.5,
+              fontWeight: FontWeight.w800,
+              color: highlight ? AppColors.primaryGreen : AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 11,
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openPostDetail(
+    OwnerPost post, {
+    bool focusComment = false,
+  }) async {
+    final owner = _owner;
+    if (owner == null) return;
+    final updated = await Navigator.of(context).push<OwnerPost>(
+      MaterialPageRoute(
+        builder: (_) => PostDetailScreen(
+          post: post,
+          owner: owner,
+          focusComment: focusComment,
+          onOpenKostById: _openKostById,
+        ),
+      ),
+    );
+    if (!mounted || updated == null) return;
+    setState(() {
+      final idx = _posts.indexWhere((p) => p.id == updated.id);
+      if (idx >= 0) {
+        _posts[idx] = updated;
+      }
+    });
+  }
+
+  Future<void> _togglePostLike(OwnerPost post) async {
+    final user = AuthService.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Silakan masuk terlebih dahulu untuk menyukai postingan.'),
+        ),
+      );
+      return;
+    }
+    final idx = _posts.indexWhere((p) => p.id == post.id);
+    if (idx < 0) return;
+
+    final prevLiked = post.isLiked;
+    final prevCount = post.likeCount;
+    setState(() {
+      _posts[idx] = post.copyWith(
+        isLiked: !prevLiked,
+        likeCount: prevLiked
+            ? (prevCount > 0 ? prevCount - 1 : 0)
+            : prevCount + 1,
+      );
+    });
+
+    try {
+      final res = await ApiService.togglePostLike(post.id);
+      if (!mounted) return;
+      final currentIdx = _posts.indexWhere((p) => p.id == post.id);
+      if (currentIdx >= 0) {
+        setState(() {
+          _posts[currentIdx] = _posts[currentIdx].copyWith(
+            isLiked: res.liked,
+            likeCount: res.likeCount,
+          );
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      final currentIdx = _posts.indexWhere((p) => p.id == post.id);
+      if (currentIdx >= 0) {
+        setState(() {
+          _posts[currentIdx] = _posts[currentIdx].copyWith(
+            isLiked: prevLiked,
+            likeCount: prevCount,
+          );
+        });
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Gagal memperbarui suka: $e')),
+      );
+    }
+  }
+
+  Future<void> _toggleShowWhatsapp(bool value) async {
+    final owner = _owner;
+    if (owner == null || _updatingWhatsappSetting) return;
+    if (value && owner.phone.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Silakan isi Nomor WhatsApp Aktif di Edit Profil terlebih dahulu.',
+          ),
+        ),
+      );
+      return;
+    }
+    setState(() => _updatingWhatsappSetting = true);
+    try {
+      final updated = await AuthService.updateCurrentUserProfile(
+        name: owner.name,
+        phone: owner.phone,
+        showWhatsapp: value,
+      );
+      if (!mounted) return;
+      setState(() {
+        _owner = updated;
+        _updatingWhatsappSetting = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.primaryGreen,
+          content: Text(
+            value
+                ? 'Nomor WhatsApp kini ditampilkan di properti Anda.'
+                : 'Nomor WhatsApp disembunyikan dari properti Anda.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _updatingWhatsappSetting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red.shade700,
+          content: Text('Gagal memperbarui pengaturan WhatsApp: $e'),
+        ),
+      );
+    }
   }
 
   Widget _buildPostsTab() {
@@ -705,127 +1105,41 @@ class _OwnerProfileScreenState extends State<OwnerProfileScreen>
       );
     }
 
-    return RefreshIndicator(
-      onRefresh: _loadData,
-      child: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 84),
-        itemCount: _posts.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 12),
-        itemBuilder: (context, index) {
-          final post = _posts[index];
-          return Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.cardBorder),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        _formatDate(post.createdAt),
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.textSecondary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    if (_canManagePosts)
-                      PopupMenuButton<String>(
-                        onSelected: (value) {
-                          if (value == 'edit') {
-                            _openPostEditor(existing: post);
-                          } else if (value == 'delete') {
-                            _confirmDeletePost(post);
-                          }
-                        },
-                        itemBuilder: (_) => const [
-                          PopupMenuItem(value: 'edit', child: Text('Edit')),
-                          PopupMenuItem(value: 'delete', child: Text('Hapus')),
-                        ],
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  post.content,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    height: 1.45,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                if (post.imageUrl != null && post.imageUrl!.trim().isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 10),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: Image.network(
-                        post.imageUrl!,
-                        width: double.infinity,
-                        height: 190,
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                  ),
-                if (post.kostId != null &&
-                    post.kostName != null &&
-                    post.kostName!.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 10),
-                    child: InkWell(
-                      onTap: () => _openKostById(post.kostId!),
-                      borderRadius: BorderRadius.circular(8),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.lightGreenBg,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.home_work_outlined,
-                              size: 15,
-                              color: AppColors.darkGreen,
-                            ),
-                            const SizedBox(width: 6),
-                            Flexible(
-                              child: Text(
-                                post.kostName!,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.darkGreen,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            const Icon(
-                              Icons.chevron_right_rounded,
-                              size: 16,
-                              color: AppColors.darkGreen,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          );
-        },
+    final owner = _owner;
+    if (owner == null) return const SizedBox.shrink();
+
+    return Container(
+      color: const Color(0xFFF0F2F5),
+      child: RefreshIndicator(
+        onRefresh: _loadData,
+        child: ListView.separated(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 84),
+          itemCount: _posts.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 10),
+          itemBuilder: (context, index) {
+            final post = _posts[index];
+            return OwnerPostCard(
+              post: post,
+              owner: owner,
+              canManage: _canManagePosts,
+              onTapPost: () => _openPostDetail(post),
+              onTapComment: () => _openPostDetail(post, focusComment: true),
+              onTapLike: () => _togglePostLike(post),
+              onTapImage: (post.imageUrl != null &&
+                      post.imageUrl!.trim().isNotEmpty)
+                  ? () => FullScreenImageViewer.open(
+                        context,
+                        imageUrl: post.imageUrl!,
+                        heroTag: 'post-image-${post.id}',
+                      )
+                  : null,
+              onTapKost:
+                  post.kostId != null ? () => _openKostById(post.kostId!) : null,
+              onEdit: () => _openPostEditor(existing: post),
+              onDelete: () => _confirmDeletePost(post),
+            );
+          },
+        ),
       ),
     );
   }
@@ -840,95 +1154,180 @@ class _OwnerProfileScreenState extends State<OwnerProfileScreen>
       );
     }
 
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-      itemCount: _properties.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-        final kost = _properties[index];
-        return InkWell(
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => KostDetailScreen(
-                  kost: kost,
-                  isFavorite: false,
-                  onToggleFavorite: () {},
-                  onBookingCreated: () {},
-                ),
-              ),
-            );
-          },
-          borderRadius: BorderRadius.circular(14),
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.cardBorder),
-            ),
-            child: Row(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: kost.images.isNotEmpty
-                      ? Image.network(
-                          kost.images.first,
-                          width: 82,
-                          height: 82,
-                          fit: BoxFit.cover,
-                        )
-                      : Container(
-                          width: 82,
-                          height: 82,
-                          color: AppColors.lightGreenBg,
-                          child: const Icon(
-                            Icons.home_work_outlined,
-                            color: AppColors.primaryGreen,
-                          ),
-                        ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        kost.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 15,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${kost.district}, ${kost.city}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        formatRupiah(kost.pricePerMonth),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 14,
-                          color: AppColors.primaryGreen,
-                        ),
-                      ),
-                    ],
+    return RefreshIndicator(
+      onRefresh: _loadData,
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+        itemCount: _properties.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 12),
+        itemBuilder: (context, index) {
+          final kost = _properties[index];
+          final hasRooms = kost.availableRooms > 0;
+          return InkWell(
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => KostDetailScreen(
+                    kost: kost,
+                    isFavorite: false,
+                    onToggleFavorite: () {},
+                    onBookingCreated: () {},
                   ),
                 ),
-              ],
+              );
+            },
+            borderRadius: BorderRadius.circular(14),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.cardBorder),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: kost.images.isNotEmpty
+                        ? Image.network(
+                            kost.images.first,
+                            width: 92,
+                            height: 92,
+                            fit: BoxFit.cover,
+                          )
+                        : Container(
+                            width: 92,
+                            height: 92,
+                            color: AppColors.lightGreenBg,
+                            child: const Icon(
+                              Icons.home_work_outlined,
+                              color: AppColors.primaryGreen,
+                            ),
+                          ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 7,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.lightGreenBg,
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    '${kost.propertyCategory} • ${kost.type}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.darkGreen,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Icon(
+                              Icons.star_rounded,
+                              size: 14,
+                              color: Colors.amber.shade700,
+                            ),
+                            const SizedBox(width: 2),
+                            Text(
+                              kost.reviewCount > 0
+                                  ? '${kost.rating.toStringAsFixed(1)} (${kost.reviewCount})'
+                                  : 'Baru',
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          kost.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          '${kost.district}, ${kost.city}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 7),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${formatRupiah(kost.displayPrice)}${kost.displayPriceShortUnit}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 13.5,
+                                  color: AppColors.primaryGreen,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: hasRooms
+                                    ? Colors.orange.shade50
+                                    : Colors.red.shade50,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                hasRooms
+                                    ? 'Sisa ${kost.availableRooms} kamar'
+                                    : 'Penuh',
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: hasRooms
+                                      ? Colors.orange.shade900
+                                      : Colors.red.shade700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }

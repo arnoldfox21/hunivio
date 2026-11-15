@@ -46,6 +46,12 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> {
       icon: Icons.apartment_rounded,
     ),
     (
+      id: 'Hunian Harian',
+      title: 'Villa & Homestay',
+      desc: 'Penginapan harian atau staycation nyaman untuk liburan & keluarga',
+      icon: Icons.villa_rounded,
+    ),
+    (
       id: 'Semua',
       title: 'Semua Jenis Hunian',
       desc: 'Tertarik atau mengelola lebih dari satu jenis properti',

@@ -46,7 +46,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _phoneCtrl = TextEditingController(text: widget.user.phone);
     _avatarUrl = widget.user.avatarUrl;
     _coverUrl = widget.user.coverUrl;
+    _showWhatsapp = widget.user.showWhatsapp;
   }
+
+  late bool _showWhatsapp;
 
   @override
   void dispose() {
@@ -166,6 +169,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         city: _cityCtrl.text.trim(),
         avatarUrl: finalAvatarUrl,
         coverUrl: finalCoverUrl,
+        showWhatsapp: _showWhatsapp,
       );
 
       if (!mounted) return;
@@ -454,6 +458,41 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         ),
                       ),
                     ),
+                    if (widget.user.canManageKost) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF6F8FA),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppColors.cardBorder),
+                        ),
+                        child: SwitchListTile.adaptive(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 2,
+                          ),
+                          activeColor: AppColors.primaryGreen,
+                          title: const Text(
+                            'Tampilkan Nomor WhatsApp di Properti',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                          subtitle: const Text(
+                            'Penyewa dapat chat langsung ke WhatsApp Anda dari halaman properti.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                          value: _showWhatsapp,
+                          onChanged: (val) =>
+                              setState(() => _showWhatsapp = val),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 14),
                     InputDecorator(
                       decoration: InputDecoration(
@@ -511,6 +550,28 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         ),
                       ),
                     ),
+                    if (widget.user.id != 1) ...[
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 46,
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red.shade700,
+                            side: BorderSide(color: Colors.red.shade300),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          onPressed: _saving ? null : _confirmDeleteAccount,
+                          icon: const Icon(Icons.delete_forever_outlined),
+                          label: const Text(
+                            'Hapus Akun Permanen',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -519,5 +580,54 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDeleteAccount() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Hapus Akun Permanen?'),
+        content: const Text(
+          'Semua data profil, favorit, dan riwayat akun Anda akan dihapus permanen. Tindakan ini tidak dapat dibatalkan.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade700,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Ya, Hapus Akun'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _saving = true);
+    try {
+      await ApiService.deleteMyAccount();
+      await AuthService.signOut();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Akun Anda berhasil dihapus.')),
+      );
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red.shade700,
+          content: Text(
+            e.toString().replaceFirst('Exception: ', ''),
+          ),
+        ),
+      );
+    }
   }
 }

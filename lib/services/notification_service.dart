@@ -101,6 +101,11 @@ class NotificationService {
         badge: true,
         sound: true,
       );
+      await messaging.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
 
       FirebaseMessaging.onMessage.listen((RemoteMessage message) {
         final data = message.data;
@@ -109,16 +114,20 @@ class NotificationService {
         final receiverId = int.tryParse('${data['receiverId']}');
         final currentId = AuthService.currentUser?.id;
 
-        // Pastikan notifikasi hanya tampil jika user sedang login & memang penerimanya
-        if (currentId == null) return;
-        if (receiverId != null && receiverId != currentId) return;
-        if (senderId == currentId) return;
+        if (receiverId != null &&
+            (currentId == null || receiverId != currentId)) {
+          return;
+        }
+        if (currentId != null && senderId == currentId) return;
         if (kostId != null && activeChatKostId == kostId) return;
 
         final messageId = int.tryParse('${data['messageId']}') ?? kostId;
         final title =
-            message.notification?.title ?? data['senderName'] ?? 'Pesan Baru';
-        final body = message.notification?.body ?? 'Anda mendapat pesan baru.';
+            message.notification?.title ?? data['senderName'] ?? 'HuniVio';
+        final body =
+            message.notification?.body ??
+            data['body']?.toString() ??
+            'Anda mendapat notifikasi baru.';
         if (kostId != null && kostId > 0) {
           showChatNotification(
             kostId: kostId,
@@ -127,6 +136,14 @@ class NotificationService {
             messageId: messageId,
           );
           refreshUnreadCount();
+        } else {
+          showLocalNotification(
+            id: message.messageId?.hashCode ??
+                DateTime.now().millisecondsSinceEpoch.remainder(1000000),
+            title: title,
+            body: body,
+            payloadData: data.isNotEmpty ? data : null,
+          );
         }
       });
 
@@ -305,6 +322,43 @@ class NotificationService {
     } catch (_) {}
   }
 
+  static Future<void> showLocalNotification({
+    required int id,
+    required String title,
+    required String body,
+    Map<String, dynamic>? payloadData,
+  }) async {
+    try {
+      const androidDetails = AndroidNotificationDetails(
+        'hunivio_chat_channel',
+        'Pesan Chat HuniVio',
+        channelDescription:
+            'Notifikasi pesan masuk dari penyewa dan pemilik properti.',
+        importance: Importance.max,
+        priority: Priority.max,
+        icon: '@mipmap/ic_launcher',
+      );
+      const iosDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBanner: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+      const details = NotificationDetails(
+        android: androidDetails,
+        iOS: iosDetails,
+      );
+
+      await _localNotifications.show(
+        id,
+        title,
+        body,
+        details,
+        payload: payloadData != null ? jsonEncode(payloadData) : null,
+      );
+    } catch (_) {}
+  }
+
   static Future<void> showChatNotification({
     required int kostId,
     required String title,
@@ -318,30 +372,12 @@ class NotificationService {
         _notifiedMessageIds.remove(_notifiedMessageIds.first);
       }
     }
-    try {
-      const androidDetails = AndroidNotificationDetails(
-        'hunivio_chat_channel',
-        'Pesan Chat HuniVio',
-        channelDescription:
-            'Notifikasi pesan masuk dari penyewa dan pemilik properti.',
-        importance: Importance.high,
-        priority: Priority.high,
-        icon: '@mipmap/ic_launcher',
-      );
-      const iosDetails = DarwinNotificationDetails();
-      const details = NotificationDetails(
-        android: androidDetails,
-        iOS: iosDetails,
-      );
-
-      await _localNotifications.show(
-        messageId ?? kostId,
-        title,
-        body,
-        details,
-        payload: jsonEncode({'kostId': kostId}),
-      );
-    } catch (_) {}
+    await showLocalNotification(
+      id: messageId ?? kostId,
+      title: title,
+      body: body,
+      payloadData: {'kostId': kostId},
+    );
   }
 
   static Future<void> openChatFromNotification(int kostId) async {

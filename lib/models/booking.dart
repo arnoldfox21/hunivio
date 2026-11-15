@@ -7,20 +7,14 @@ class Booking {
   final String tenantName;
   final String tenantPhone;
   final String startDate;
-  final int durationMonths;
-  final int totalPrice;
-  final String bookingType; // 'SEWA' | 'SURVEI'
+  final String bookingType;
   final String surveyDateTime;
-  final String paymentMethod;
-  final String paymentStatus; // 'BELUM_BAYAR' | 'MENUNGGU_PEMBAYARAN' | 'LUNAS'
-  final String invoiceNumber;
   final String status;
   final String? notes;
   final String createdAt;
   final Kost? kost;
 
   bool get isSurvey => bookingType.toUpperCase() == 'SURVEI';
-  bool get isPaid => paymentStatus.toUpperCase() == 'LUNAS';
 
   const Booking({
     required this.id,
@@ -29,13 +23,8 @@ class Booking {
     required this.tenantName,
     required this.tenantPhone,
     required this.startDate,
-    required this.durationMonths,
-    required this.totalPrice,
-    this.bookingType = 'SEWA',
+    this.bookingType = 'SURVEI',
     this.surveyDateTime = '',
-    this.paymentMethod = 'COD',
-    this.paymentStatus = 'BELUM_BAYAR',
-    this.invoiceNumber = '',
     required this.status,
     this.notes,
     required this.createdAt,
@@ -54,18 +43,9 @@ class Booking {
       tenantName: json['tenantName'] ?? '',
       tenantPhone: json['tenantPhone'] ?? '',
       startDate: json['startDate'] ?? '',
-      durationMonths: json['durationMonths'] is int
-          ? json['durationMonths']
-          : int.tryParse('${json['durationMonths']}') ?? 1,
-      totalPrice: json['totalPrice'] is int
-          ? json['totalPrice']
-          : int.tryParse('${json['totalPrice']}') ?? 0,
-      bookingType: json['bookingType']?.toString() ?? 'SEWA',
+      bookingType: json['bookingType']?.toString() ?? 'SURVEI',
       surveyDateTime: json['surveyDateTime']?.toString() ?? '',
-      paymentMethod: json['paymentMethod']?.toString() ?? 'COD',
-      paymentStatus: json['paymentStatus']?.toString() ?? 'BELUM_BAYAR',
-      invoiceNumber: json['invoiceNumber']?.toString() ?? '',
-      status: json['status'] ?? 'MENUNGGU KONFIRMASI',
+      status: json['status'] ?? 'TERKIRIM',
       notes: json['notes'],
       createdAt: json['createdAt'] ?? '',
       kost: json['kost'] != null && json['kost'] is Map<String, dynamic>

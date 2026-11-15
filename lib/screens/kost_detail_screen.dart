@@ -4,6 +4,7 @@ import 'package:latlong2/latlong.dart';
 import '../models/booking.dart';
 import '../models/kost.dart';
 import '../models/review.dart';
+import '../models/user_profile.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import '../services/mapbox_service.dart';
@@ -31,6 +32,8 @@ class KostDetailScreen extends StatefulWidget {
 }
 
 class _KostDetailScreenState extends State<KostDetailScreen> {
+  late Kost _kost;
+  UserProfile? _ownerProfile;
   int _currentImageIndex = 0;
   late bool _isFav;
   List<Review> _reviews = [];
@@ -40,9 +43,20 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
   @override
   void initState() {
     super.initState();
+    _kost = widget.kost;
     _isFav = widget.isFavorite;
     _loadReviews();
+    _loadOwnerProfile();
     _checkOngoingBooking();
+  }
+
+  Future<void> _loadOwnerProfile() async {
+    if (_kost.ownerId <= 0) return;
+    try {
+      final profile = await ApiService.fetchUserById(_kost.ownerId);
+      if (!mounted) return;
+      setState(() => _ownerProfile = profile);
+    } catch (_) {}
   }
 
   Future<void> _checkOngoingBooking() async {
@@ -53,8 +67,7 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
       if (!mounted) return;
       Booking? match;
       for (final b in list) {
-        if (b.kostId == widget.kost.id &&
-            !b.isSurvey &&
+        if (b.kostId == _kost.id &&
             const [
               'TERKIRIM',
               'MENUNGGU KONFIRMASI',
@@ -72,7 +85,7 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
 
   Future<void> _loadReviews() async {
     try {
-      final list = await ApiService.fetchReviews(widget.kost.id);
+      final list = await ApiService.fetchReviews(_kost.id);
       if (!mounted) return;
       setState(() {
         _reviews = list;
@@ -201,7 +214,7 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                     children: [
                       const Expanded(
                         child: Text(
-                          'Tulis Ulasan Terverifikasi',
+                          'Tulis Ulasan',
                           style: TextStyle(
                             fontWeight: FontWeight.w800,
                             fontSize: 17,
@@ -237,7 +250,7 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    widget.kost.name,
+                    _kost.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -389,7 +402,9 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                     decoration: InputDecoration(
                       labelText: 'Ceritakan pengalaman tinggal Anda',
                       hintText:
-                          'Bagaimana kondisi kamar, lingkungan, dan keramahan pemilik?',
+                        _kost.isDailyStay
+                            ? 'Bagaimana kenyamanan unit, kebersihan, dan pelayanan pemilik?'
+                            : 'Bagaimana kondisi kamar, lingkungan, dan keramahan pemilik?',
                       alignLabelWithHint: true,
                       errorText: validationError,
                       filled: true,
@@ -424,7 +439,7 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                               setSheetState(() => submitting = true);
                               try {
                                 await ApiService.createReview(
-                                  kostId: widget.kost.id,
+                                  kostId: _kost.id,
                                   userId: user.id,
                                   userName: user.name,
                                   userAvatar: user.avatarUrl,
@@ -441,7 +456,8 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                                   const SnackBar(
                                     backgroundColor: AppColors.primaryGreen,
                                     content: Text(
-                                        'Terima kasih! Ulasan Anda tersimpan.'),
+                                      'Terima kasih! Ulasan Anda berhasil dipublikasikan.',
+                                    ),
                                   ),
                                 );
                               } catch (e) {
@@ -487,7 +503,290 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
 
   bool get _isOwner =>
       AuthService.currentUser != null &&
-      AuthService.currentUser!.id == widget.kost.ownerId;
+      AuthService.currentUser!.id == _kost.ownerId;
+
+  Future<void> _shareKost() async {
+    final kost = _kost;
+    final text = buildKostShareText(
+      kostName: kost.name,
+      propertyCategory: kost.propertyCategory,
+      kostType: kost.type,
+      pricePerMonth: kost.displayPrice,
+      address: kost.address,
+      district: kost.district,
+      city: kost.city,
+      rating: kost.rating,
+      latitude: kost.latitude,
+      longitude: kost.longitude,
+    );
+    try {
+      await shareTextContent(text: text, subject: kost.name);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red.shade700,
+          content: Text('Gagal membagikan properti: $e'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _openReplyReviewDialog(Review review) async {
+    final replyCtrl = TextEditingController(text: review.ownerReply ?? '');
+    bool submitting = false;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text(
+            (review.ownerReply != null && review.ownerReply!.trim().isNotEmpty)
+                ? 'Edit Balasan Ulasan'
+                : 'Balas Ulasan Penghuni',
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+          ),
+          content: TextField(
+            controller: replyCtrl,
+            maxLines: 4,
+            minLines: 2,
+            decoration: const InputDecoration(
+              hintText: 'Tulis tanggapan Anda untuk ulasan ini...',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: submitting ? null : () => Navigator.of(ctx).pop(),
+              child: const Text('Batal'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primaryGreen,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: submitting
+                  ? null
+                  : () async {
+                      final text = replyCtrl.text.trim();
+                      if (text.isEmpty) return;
+                      setDialogState(() => submitting = true);
+                      try {
+                        final updated = await ApiService.replyToReview(
+                          reviewId: review.id,
+                          reply: text,
+                        );
+                        if (!mounted) return;
+                        setState(() {
+                          final idx = _reviews.indexWhere(
+                            (r) => r.id == updated.id,
+                          );
+                          if (idx >= 0) {
+                            _reviews[idx] = updated;
+                          }
+                        });
+                        if (ctx.mounted) Navigator.of(ctx).pop();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            backgroundColor: AppColors.primaryGreen,
+                            content: Text('Balasan ulasan berhasil disimpan.'),
+                          ),
+                        );
+                      } catch (e) {
+                        setDialogState(() => submitting = false);
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            backgroundColor: Colors.red.shade700,
+                            content: Text('Gagal membalas ulasan: $e'),
+                          ),
+                        );
+                      }
+                    },
+              child: Text(submitting ? 'Menyimpan...' : 'Kirim Balasan'),
+            ),
+          ],
+        ),
+      ),
+    );
+    replyCtrl.dispose();
+  }
+
+  Future<void> _openReportReviewDialog(Review rev) async {
+    final user = AuthService.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Silakan masuk terlebih dahulu untuk melaporkan ulasan.'),
+        ),
+      );
+      return;
+    }
+
+    const reasons = [
+      'Spam / Iklan',
+      'Ujaran Kebencian / Kasar',
+      'Informasi Palsu',
+      'Tidak Relevan',
+      'Lainnya',
+    ];
+    String selectedReason = reasons.first;
+    final detailsCtrl = TextEditingController();
+    bool submitting = false;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text(
+            'Laporkan Ulasan',
+            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Pilih alasan pelaporan untuk ulasan oleh ${rev.userName}:',
+                  style: TextStyle(fontSize: 12.5, color: Colors.grey.shade700),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: reasons.map((r) {
+                    final selected = selectedReason == r;
+                    return ChoiceChip(
+                      label: Text(r, style: const TextStyle(fontSize: 12)),
+                      selected: selected,
+                      selectedColor: AppColors.lightGreenBg,
+                      labelStyle: TextStyle(
+                        color: selected
+                            ? AppColors.darkGreen
+                            : AppColors.textPrimary,
+                        fontWeight:
+                            selected ? FontWeight.w700 : FontWeight.w500,
+                      ),
+                      onSelected: (val) {
+                        if (val) setDialogState(() => selectedReason = r);
+                      },
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: detailsCtrl,
+                  maxLines: 3,
+                  decoration: InputDecoration(
+                    hintText: 'Keterangan tambahan (opsional)...',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    isDense: true,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: submitting ? null : () => Navigator.of(ctx).pop(),
+              child: const Text('Batal'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red.shade600,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: submitting
+                  ? null
+                  : () async {
+                      setDialogState(() => submitting = true);
+                      try {
+                        await ApiService.reportReview(
+                          reviewId: rev.id,
+                          reason: selectedReason,
+                          details: detailsCtrl.text,
+                        );
+                        if (!mounted) return;
+                        if (ctx.mounted) Navigator.of(ctx).pop();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            backgroundColor: AppColors.primaryGreen,
+                            content: Text(
+                              'Laporan ulasan berhasil dikirim. Tim kami akan meninjau.',
+                            ),
+                          ),
+                        );
+                      } catch (e) {
+                        setDialogState(() => submitting = false);
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            backgroundColor: Colors.red.shade700,
+                            content: Text(
+                              e.toString().replaceFirst('Exception: ', ''),
+                            ),
+                          ),
+                        );
+                      }
+                    },
+              child: Text(submitting ? 'Mengirim...' : 'Kirim Laporan'),
+            ),
+          ],
+        ),
+      ),
+    );
+    detailsCtrl.dispose();
+  }
+
+  Future<void> _openInGoogleMaps() async {
+    final kost = _kost;
+    if (!kost.hasCoordinates) return;
+    try {
+      await openGoogleMapsLocation(
+        latitude: kost.latitude!,
+        longitude: kost.longitude!,
+        label: kost.name,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red.shade700,
+          content: Text('Tidak dapat membuka Google Maps: $e'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _openWhatsAppOwner() async {
+    final kost = _kost;
+    final msg = buildKostWhatsAppTemplate(
+      ownerName: kost.ownerName,
+      kostName: kost.name,
+      propertyCategory: kost.propertyCategory,
+      kostType: kost.type,
+      address: kost.address,
+      district: kost.district,
+      city: kost.city,
+      pricePerMonth: kost.displayPrice,
+    );
+    try {
+      await openWhatsAppChat(
+        phone: kost.ownerPhone,
+        message: msg,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red.shade700,
+          content: Text('Tidak dapat membuka WhatsApp: $e'),
+        ),
+      );
+    }
+  }
 
   void _openChatScreen() {
     if (AuthService.currentUser == null) {
@@ -508,7 +807,7 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
     }
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => KostChatScreen(kost: widget.kost),
+        builder: (_) => KostChatScreen(kost: _kost),
       ),
     );
   }
@@ -517,7 +816,7 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
     if (AuthService.currentUser == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Silakan masuk terlebih dahulu untuk mengajukan sewa.'),
+          content: Text('Silakan masuk terlebih dahulu untuk mengajukan survei.'),
         ),
       );
       return;
@@ -525,7 +824,7 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
     if (_isOwner) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Anda tidak dapat mengajukan sewa pada properti milik sendiri.'),
+          content: Text('Anda tidak dapat mengajukan survei pada properti milik sendiri.'),
         ),
       );
       return;
@@ -538,7 +837,7 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (_) => BookingSheet(
-        kost: widget.kost,
+        kost: _kost,
         onSuccess: () {
           widget.onBookingCreated();
           _checkOngoingBooking();
@@ -547,9 +846,128 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
     );
   }
 
+  Future<void> _openEditDescriptionDialog() async {
+    final ctrl = TextEditingController(text: _kost.description);
+    bool saving = false;
+    String? errorMsg;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            16,
+            20,
+            MediaQuery.of(ctx).viewInsets.bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Edit Cerita / Tentang ${_kost.categoryLabel}',
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Ceritakan keunggulan, suasana lingkungan, akses sekitar, dan hal menarik untuk calon penyewa.',
+                style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: ctrl,
+                maxLines: 5,
+                minLines: 3,
+                decoration: InputDecoration(
+                  hintText: 'Tulis cerita tentang ${_kost.categoryLabel.toLowerCase()} Anda...',
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+              if (errorMsg != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  errorMsg!,
+                  style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+                ),
+              ],
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                height: 46,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primaryGreen,
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          final text = ctrl.text.trim();
+                          if (text.isEmpty) {
+                            setModalState(() {
+                              errorMsg = 'Deskripsi tidak boleh kosong.';
+                            });
+                            return;
+                          }
+                          setModalState(() {
+                            saving = true;
+                            errorMsg = null;
+                          });
+                          try {
+                            final updated = await ApiService.updateKost(
+                              _kost.id,
+                              {'description': text},
+                            );
+                            if (!mounted) return;
+                            setState(() => _kost = updated);
+                            if (ctx.mounted) Navigator.of(ctx).pop();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Deskripsi properti berhasil diperbarui.'),
+                              ),
+                            );
+                          } catch (e) {
+                            setModalState(() {
+                              saving = false;
+                              errorMsg = e.toString().replaceFirst('Exception: ', '');
+                            });
+                          }
+                        },
+                  child: saving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text(
+                          'Simpan Deskripsi',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    ctrl.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final kost = widget.kost;
+    final kost = _kost;
     final images = kost.images;
 
     return Scaffold(
@@ -563,6 +981,18 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
             backgroundColor: AppColors.primaryGreen,
             foregroundColor: Colors.white,
             actions: [
+              IconButton(
+                tooltip: 'Bagikan Properti',
+                onPressed: _shareKost,
+                icon: CircleAvatar(
+                  backgroundColor: Colors.black.withOpacity(0.35),
+                  child: const Icon(
+                    Icons.share_outlined,
+                    color: Colors.white,
+                    size: 19,
+                  ),
+                ),
+              ),
               IconButton(
                 onPressed: () {
                   setState(() => _isFav = !_isFav);
@@ -662,13 +1092,19 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                           vertical: 4,
                         ),
                         decoration: BoxDecoration(
-                          color: getKostTypeBgColor(kost.type),
+                          color: kost.isDailyStay
+                              ? const Color(0xFFE0F2FE)
+                              : getKostTypeBgColor(kost.type),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
-                          'Kost ${kost.type}',
+                          kost.isDailyStay
+                              ? '${kost.categoryLabel} • Harian'
+                              : '${kost.categoryLabel} • ${kost.type}',
                           style: TextStyle(
-                            color: getKostTypeColor(kost.type),
+                            color: kost.isDailyStay
+                                ? const Color(0xFF0369A1)
+                                : getKostTypeColor(kost.type),
                             fontWeight: FontWeight.w700,
                             fontSize: 12.5,
                           ),
@@ -710,13 +1146,25 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                           vertical: 4,
                         ),
                         decoration: BoxDecoration(
-                          color: Colors.orange.shade50,
+                          color: kost.availableRooms > 0
+                              ? Colors.orange.shade50
+                              : Colors.red.shade50,
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
-                          'Sisa ${kost.availableRooms} dari ${kost.totalRooms} kamar',
+                          kost.availableRooms > 0
+                              ? (kost.isDailyStay ||
+                                      kost.propertyCategory != 'KOST'
+                                  ? 'Tersedia ${kost.availableRooms} unit'
+                                  : 'Sisa ${kost.availableRooms} kamar')
+                              : (kost.isDailyStay ||
+                                      kost.propertyCategory != 'KOST'
+                                  ? 'Unit Penuh'
+                                  : 'Kamar Penuh'),
                           style: TextStyle(
-                            color: Colors.orange.shade900,
+                            color: kost.availableRooms > 0
+                                ? Colors.orange.shade900
+                                : Colors.red.shade700,
                             fontWeight: FontWeight.w700,
                             fontSize: 12,
                           ),
@@ -761,12 +1209,30 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                         size: 19,
                       ),
                       const SizedBox(width: 3),
-                      Text(
-                        '${kost.rating.toStringAsFixed(1)} (${kost.reviewCount} review)',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13.5,
-                        ),
+                      Builder(
+                        builder: (context) {
+                          final displayCount = _loadingReviews
+                              ? kost.reviewCount
+                              : _reviews.length;
+                          final displayRating = _loadingReviews
+                              ? kost.rating
+                              : (_reviews.isEmpty
+                                  ? 0.0
+                                  : _reviews.fold<double>(
+                                        0.0,
+                                        (sum, r) => sum + r.overallRating,
+                                      ) /
+                                      _reviews.length);
+                          return Text(
+                            displayCount > 0
+                                ? '${displayRating.toStringAsFixed(1)} ($displayCount ulasan)'
+                                : 'Belum ada ulasan',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13.5,
+                            ),
+                          );
+                        },
                       ),
                     ],
                   ),
@@ -780,7 +1246,9 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                     Row(
                       children: [
                         Icon(
-                          Icons.school_outlined,
+                          kost.isDailyStay
+                              ? Icons.place_outlined
+                              : Icons.school_outlined,
                           size: 15,
                           color: Colors.grey.shade700,
                         ),
@@ -800,26 +1268,54 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                   ],
                   if (kost.hasCoordinates) ...[
                     const SizedBox(height: 10),
-                    OutlinedButton.icon(
-                      onPressed: () => _showMapPreviewDialog(context),
-                      icon: const Icon(
-                        Icons.map_outlined,
-                        size: 17,
-                        color: AppColors.primaryGreen,
-                      ),
-                      label: const Text(
-                        'Lihat Lokasi di Peta',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.primaryGreen,
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () => _showMapPreviewDialog(context),
+                          icon: const Icon(
+                            Icons.map_outlined,
+                            size: 17,
+                            color: AppColors.primaryGreen,
+                          ),
+                          label: const Text(
+                            'Lihat Lokasi di Peta',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.primaryGreen,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            side:
+                                const BorderSide(color: AppColors.primaryGreen),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
                         ),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: AppColors.primaryGreen),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
+                        OutlinedButton.icon(
+                          onPressed: _openInGoogleMaps,
+                          icon: const Icon(
+                            Icons.directions_outlined,
+                            size: 17,
+                            color: Color(0xFF1A73E8),
+                          ),
+                          label: const Text(
+                            'Google Maps',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF1A73E8),
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: Color(0xFF1A73E8)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
                   ],
 
@@ -828,10 +1324,12 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                     child: Divider(height: 1),
                   ),
 
-                  // Spesifikasi Tipe Kamar
-                  const Text(
-                    'Spesifikasi Tipe Kamar',
-                    style: TextStyle(
+                  // Spesifikasi Properti
+                  Text(
+                    kost.isDailyStay
+                        ? 'Spesifikasi ${kost.categoryLabel}'
+                        : 'Spesifikasi Tipe Kamar',
+                    style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
                     ),
@@ -841,17 +1339,48 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                     children: [
                       _SpecTile(
                         icon: Icons.straighten_rounded,
-                        label: 'Luas Kamar',
-                        value: kost.roomSize,
+                        label: kost.isDailyStay ||
+                                kost.propertyCategory != 'KOST'
+                            ? 'Luas Bangunan'
+                            : 'Luas Kamar',
+                        value: kost.roomSize.trim().isNotEmpty
+                            ? kost.roomSize
+                            : '-',
                       ),
                       const SizedBox(width: 12),
-                      _SpecTile(
-                        icon: Icons.bolt_rounded,
-                        label: 'Listrik',
-                        value: kost.electricityIncluded
-                            ? 'Termasuk Listrik'
-                            : 'Tidak Termasuk',
-                      ),
+                      if (kost.isDailyStay ||
+                          kost.propertyCategory == 'KONTRAKAN')
+                        _SpecTile(
+                          icon: Icons.bed_rounded,
+                          label: 'Kapasitas',
+                          value:
+                              '${kost.bedrooms} Kamar Tidur • ${kost.bathrooms} KM',
+                        )
+                      else if (kost.propertyCategory == 'APARTEMEN')
+                        _SpecTile(
+                          icon: Icons.apartment_rounded,
+                          label: 'Tipe & Kondisi',
+                          value: [
+                            if (kost.unitType.trim().isNotEmpty) kost.unitType,
+                            if (kost.furnishing.trim().isNotEmpty)
+                              kost.furnishing,
+                          ].isNotEmpty
+                              ? [
+                                  if (kost.unitType.trim().isNotEmpty)
+                                    kost.unitType,
+                                  if (kost.furnishing.trim().isNotEmpty)
+                                    kost.furnishing,
+                                ].join(' • ')
+                              : '${kost.bedrooms} KT • ${kost.bathrooms} KM',
+                        )
+                      else
+                        _SpecTile(
+                          icon: Icons.bolt_rounded,
+                          label: 'Listrik',
+                          value: kost.electricityIncluded
+                              ? 'Termasuk Listrik'
+                              : 'Tidak Termasuk',
+                        ),
                     ],
                   ),
 
@@ -860,19 +1389,31 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                     child: Divider(height: 1),
                   ),
 
-                  // Fasilitas Kamar
-                  const Text(
-                    'Fasilitas Kamar & Kamar Mandi',
-                    style: TextStyle(
+                  // Fasilitas Dalam / Kamar
+                  Text(
+                    kost.isDailyStay
+                        ? 'Fasilitas Dalam ${kost.categoryLabel}'
+                        : 'Fasilitas Kamar & Kamar Mandi',
+                    style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: kost.roomFacilities
+                  if (kost.roomFacilities.isEmpty)
+                    Text(
+                      'Pemilik belum mencantumkan fasilitas dalam.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontStyle: FontStyle.italic,
+                        color: Colors.grey.shade600,
+                      ),
+                    )
+                  else
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: kost.roomFacilities
                         .map(
                           (f) => Container(
                             padding: const EdgeInsets.symmetric(
@@ -920,10 +1461,20 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: kost.publicFacilities
+                  if (kost.publicFacilities.isEmpty)
+                    Text(
+                      'Pemilik belum mencantumkan fasilitas umum.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontStyle: FontStyle.italic,
+                        color: Colors.grey.shade600,
+                      ),
+                    )
+                  else
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: kost.publicFacilities
                         .map(
                           (f) => Container(
                             padding: const EdgeInsets.symmetric(
@@ -962,16 +1513,30 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                     child: Divider(height: 1),
                   ),
 
-                  // Peraturan Kost
-                  const Text(
-                    'Peraturan Selama Kos',
-                    style: TextStyle(
+                  // Peraturan Properti
+                  Text(
+                    kost.isDailyStay
+                        ? 'Peraturan Menginap'
+                        : (kost.propertyCategory == 'KOST'
+                            ? 'Peraturan Selama Kos'
+                            : 'Peraturan ${kost.categoryLabel}'),
+                    style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
                   const SizedBox(height: 10),
-                  ...kost.rules.map(
+                  if (kost.rules.isEmpty)
+                    Text(
+                      'Tidak ada peraturan khusus yang dicantumkan pemilik.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontStyle: FontStyle.italic,
+                        color: Colors.grey.shade600,
+                      ),
+                    )
+                  else
+                    ...kost.rules.map(
                     (rule) => Padding(
                       padding: const EdgeInsets.only(bottom: 8),
                       child: Row(
@@ -999,20 +1564,40 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                   ),
 
                   // Cerita Pemilik / Deskripsi
-                  const Text(
-                    'Cerita Pemilik tentang Kos Ini',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Tentang ${kost.categoryLabel} Ini',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      if (_isOwner)
+                        TextButton.icon(
+                          onPressed: _openEditDescriptionDialog,
+                          icon: const Icon(Icons.edit_outlined, size: 16),
+                          label: const Text('Edit'),
+                        ),
+                    ],
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    kost.description,
+                    kost.description.trim().isNotEmpty
+                        ? kost.description
+                        : 'Pemilik belum menuliskan cerita atau deskripsi untuk properti ini.',
                     style: TextStyle(
                       fontSize: 14,
                       height: 1.5,
-                      color: Colors.grey.shade800,
+                      fontStyle: kost.description.trim().isEmpty
+                          ? FontStyle.italic
+                          : FontStyle.normal,
+                      color: kost.description.trim().isEmpty
+                          ? Colors.grey.shade600
+                          : Colors.grey.shade800,
                     ),
                   ),
                   const SizedBox(height: 18),
@@ -1024,7 +1609,7 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                         MaterialPageRoute(
                           builder: (_) => OwnerProfileScreen(
                             ownerId: kost.ownerId,
-                            initialOwnerName: kost.ownerName,
+                            initialOwnerName: _ownerProfile?.name ?? kost.ownerName,
                             sourceKost: kost,
                           ),
                         ),
@@ -1040,13 +1625,21 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                       ),
                       child: Row(
                         children: [
-                          const CircleAvatar(
+                          CircleAvatar(
                             radius: 22,
                             backgroundColor: AppColors.lightGreenBg,
-                            child: Icon(
-                              Icons.person_rounded,
-                              color: AppColors.primaryGreen,
-                            ),
+                            backgroundImage:
+                                (_ownerProfile?.avatarUrl.trim().isNotEmpty ??
+                                        false)
+                                    ? NetworkImage(_ownerProfile!.avatarUrl)
+                                    : null,
+                            child: (_ownerProfile?.avatarUrl.trim().isEmpty ??
+                                    true)
+                                ? const Icon(
+                                    Icons.person_rounded,
+                                    color: AppColors.primaryGreen,
+                                  )
+                                : null,
                           ),
                           const SizedBox(width: 12),
                           Expanded(
@@ -1054,16 +1647,20 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Dikelola oleh ${kost.ownerName}',
+                                  'Dikelola oleh ${(_ownerProfile?.name.trim().isNotEmpty ?? false) ? _ownerProfile!.name : kost.ownerName}',
                                   style: const TextStyle(
                                     fontWeight: FontWeight.w700,
                                     fontSize: 14,
                                   ),
                                 ),
                                 Text(
-                                  kost.isVerified
-                                      ? 'Pemilik Terverifikasi • Lihat profil & postingan'
-                                      : 'Pemilik Properti • Lihat profil & postingan',
+                                  (_ownerProfile?.bio.trim().isNotEmpty ?? false)
+                                      ? _ownerProfile!.bio.trim()
+                                      : (kost.isVerified
+                                          ? 'Pemilik Terverifikasi • Lihat profil & postingan'
+                                          : 'Pemilik Properti • Lihat profil & postingan'),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: Colors.grey.shade600,
@@ -1080,15 +1677,43 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                       ),
                     ),
                   ),
+                  if (kost.showOwnerWhatsapp &&
+                      kost.ownerPhone.trim().isNotEmpty &&
+                      !_isOwner) ...[
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF25D366),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: _openWhatsAppOwner,
+                        icon: const Icon(Icons.chat_rounded, size: 19),
+                        label: const Text(
+                          'Chat Pemilik via WhatsApp',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 20),
 
                   // Verified Reviews Section
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Ulasan Penghuni',
-                        style: TextStyle(
+                      Text(
+                        kost.isDailyStay ? 'Ulasan Tamu' : 'Ulasan Penghuni',
+                        style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w800,
                         ),
@@ -1120,7 +1745,7 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                         border: Border.all(color: Colors.grey.shade200),
                       ),
                       child: Text(
-                        'Belum ada ulasan tertulis. Hanya penghuni dengan booking aktif/selesai yang dapat memberi ulasan terverifikasi.',
+                        'Belum ada ulasan tertulis. Jadilah yang pertama memberikan ulasan!',
                         style: TextStyle(
                           fontSize: 12.5,
                           color: Colors.grey.shade600,
@@ -1190,6 +1815,129 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                                 color: AppColors.textPrimary,
                               ),
                             ),
+                            if (rev.ownerReply != null &&
+                                rev.ownerReply!.trim().isNotEmpty) ...[
+                              const SizedBox(height: 10),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: AppColors.lightGreenBg,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: AppColors.primaryGreen
+                                        .withOpacity(0.25),
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Row(
+                                      children: [
+                                        Icon(
+                                          Icons.reply_rounded,
+                                          size: 14,
+                                          color: AppColors.darkGreen,
+                                        ),
+                                        SizedBox(width: 4),
+                                        Text(
+                                          'Balasan Pemilik',
+                                          style: TextStyle(
+                                            fontSize: 11.5,
+                                            fontWeight: FontWeight.w800,
+                                            color: AppColors.darkGreen,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      rev.ownerReply!,
+                                      style: const TextStyle(
+                                        fontSize: 12.5,
+                                        height: 1.35,
+                                        color: AppColors.textPrimary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                            if (_isOwner ||
+                                (AuthService.currentUser?.canApproveProperties ??
+                                    false) ||
+                                AuthService.currentUser?.id != rev.userId) ...[
+                              const SizedBox(height: 6),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  if (AuthService.currentUser?.id != rev.userId)
+                                    TextButton.icon(
+                                      style: TextButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 2,
+                                        ),
+                                        minimumSize: Size.zero,
+                                        tapTargetSize:
+                                            MaterialTapTargetSize.shrinkWrap,
+                                      ),
+                                      onPressed: () =>
+                                          _openReportReviewDialog(rev),
+                                      icon: Icon(
+                                        Icons.flag_outlined,
+                                        size: 14,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                      label: Text(
+                                        'Laporkan',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.grey.shade700,
+                                        ),
+                                      ),
+                                    ),
+                                  if (_isOwner ||
+                                      (AuthService.currentUser
+                                              ?.canApproveProperties ??
+                                          false)) ...[
+                                    const SizedBox(width: 6),
+                                    TextButton.icon(
+                                      style: TextButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 2,
+                                        ),
+                                        minimumSize: Size.zero,
+                                        tapTargetSize:
+                                            MaterialTapTargetSize.shrinkWrap,
+                                      ),
+                                      onPressed: () =>
+                                          _openReplyReviewDialog(rev),
+                                      icon: const Icon(
+                                        Icons.reply_rounded,
+                                        size: 15,
+                                        color: AppColors.primaryGreen,
+                                      ),
+                                      label: Text(
+                                        (rev.ownerReply != null &&
+                                                rev.ownerReply!
+                                                    .trim()
+                                                    .isNotEmpty)
+                                            ? 'Edit Balasan'
+                                            : 'Balas Ulasan',
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                          color: AppColors.primaryGreen,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -1235,16 +1983,16 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                         ),
                       ),
                     Text(
-                      formatRupiah(kost.pricePerMonth),
+                      formatRupiah(kost.displayPrice),
                       style: const TextStyle(
                         fontSize: 17,
                         fontWeight: FontWeight.w800,
                         color: AppColors.primaryGreen,
                       ),
                     ),
-                    const Text(
-                      'per bulan',
-                      style: TextStyle(fontSize: 11, color: Colors.grey),
+                    Text(
+                      kost.displayPriceFullUnit,
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
                     ),
                   ],
                 ),
@@ -1321,18 +2069,16 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: Text(
-                                  'Anda sudah memiliki pengajuan untuk properti ini (${_ongoingBooking!.status}).',
+                                  'Anda sudah memiliki jadwal survei untuk properti ini (${_ongoingBooking!.status}).',
                                 ),
                               ),
                             );
                           }
                         : _openBookingSheet,
                     child: Text(
-                      _ongoingBooking == null
-                          ? 'Ajukan Sewa'
-                          : (_ongoingBooking!.status.toUpperCase() == 'AKTIF'
-                              ? 'Sewa Aktif'
-                              : 'Dalam Pengajuan'),
+                      _ongoingBooking != null
+                          ? 'Survei Terjadwal'
+                          : 'Ajukan Survei',
                       style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
                   ),
@@ -1346,7 +2092,7 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
   }
 
   void _showMapPreviewDialog(BuildContext context) {
-    final kost = widget.kost;
+    final kost = _kost;
     if (!kost.hasCoordinates) return;
     final point = LatLng(kost.latitude!, kost.longitude!);
 

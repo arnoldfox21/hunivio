@@ -173,8 +173,8 @@ class KostCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                // Bottom left Sisa Kamar warning badge
-                if (kost.availableRooms > 0 && kost.availableRooms <= 4)
+                // Bottom left Sisa Kamar / Penuh badge
+                if (kost.availableRooms <= 4)
                   Positioned(
                     bottom: 10,
                     left: 12,
@@ -184,22 +184,32 @@ class KostCard extends StatelessWidget {
                         vertical: 4,
                       ),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF111827).withOpacity(0.82),
+                        color: kost.availableRooms <= 0
+                            ? Colors.red.shade700.withOpacity(0.92)
+                            : const Color(0xFF111827).withOpacity(0.82),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(
-                            Icons.local_fire_department_rounded,
-                            color: Color(0xFFFFB74D),
+                          Icon(
+                            kost.availableRooms <= 0
+                                ? Icons.block_rounded
+                                : Icons.local_fire_department_rounded,
+                            color: kost.availableRooms <= 0
+                                ? Colors.white
+                                : const Color(0xFFFFB74D),
                             size: 13,
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            'Sisa ${kost.availableRooms} kamar',
-                            style: const TextStyle(
-                              color: Color(0xFFFFCC80),
+                            kost.availableRooms <= 0
+                                ? 'Penuh'
+                                : 'Sisa ${kost.availableRooms} kamar',
+                            style: TextStyle(
+                              color: kost.availableRooms <= 0
+                                  ? Colors.white
+                                  : const Color(0xFFFFCC80),
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
                             ),
@@ -243,68 +253,105 @@ class KostCard extends StatelessWidget {
                 children: [
                   // Row: Gender badge + Instant Booking + Rating pill
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 3.5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF1F5F9),
-                          borderRadius: BorderRadius.circular(7),
-                        ),
-                        child: Text(
-                          kost.categoryLabel,
-                          style: const TextStyle(
-                            color: Color(0xFF334155),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 9,
-                          vertical: 3.5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: getKostTypeBgColor(kost.type),
-                          borderRadius: BorderRadius.circular(7),
-                          border: Border.all(
-                            color: getKostTypeColor(kost.type).withOpacity(0.28),
-                          ),
-                        ),
-                        child: Text(
-                          kost.type,
-                          style: TextStyle(
-                            color: getKostTypeColor(kost.type),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      if (kost.isInstantBooking)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3.5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.lightGreenBg,
-                            borderRadius: BorderRadius.circular(7),
-                          ),
-                          child: const Text(
-                            'Bisa Booking',
-                            style: TextStyle(
-                              color: AppColors.darkGreen,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
+                      Expanded(
+                        child: Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3.5,
+                              ),
+                              decoration: BoxDecoration(
+                                color: kost.isDailyStay
+                                    ? const Color(0xFFE0F2FE)
+                                    : const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(7),
+                              ),
+                              child: Text(
+                                kost.isDailyStay
+                                    ? '${kost.categoryLabel} • Harian'
+                                    : kost.categoryLabel,
+                                style: TextStyle(
+                                  color: kost.isDailyStay
+                                      ? const Color(0xFF0369A1)
+                                      : const Color(0xFF334155),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                             ),
-                          ),
+                            if (kost.isDailyStay)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3.5,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(7),
+                                  border: Border.all(
+                                    color: const Color(0xFFE2E8F0),
+                                  ),
+                                ),
+                                child: Text(
+                                  '${kost.bedrooms} KT • ${kost.bathrooms} KM',
+                                  style: const TextStyle(
+                                    color: Color(0xFF475569),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              )
+                            else
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 9,
+                                  vertical: 3.5,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: getKostTypeBgColor(kost.type),
+                                  borderRadius: BorderRadius.circular(7),
+                                  border: Border.all(
+                                    color: getKostTypeColor(kost.type)
+                                        .withOpacity(0.28),
+                                  ),
+                                ),
+                                child: Text(
+                                  kost.type,
+                                  style: TextStyle(
+                                    color: getKostTypeColor(kost.type),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            if (kost.isInstantBooking)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3.5,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.lightGreenBg,
+                                  borderRadius: BorderRadius.circular(7),
+                                ),
+                                child: const Text(
+                                  'Bisa Booking',
+                                  style: TextStyle(
+                                    color: AppColors.darkGreen,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
-                      const Spacer(),
+                      ),
+                      const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 7,
@@ -325,21 +372,24 @@ class KostCard extends StatelessWidget {
                             ),
                             const SizedBox(width: 3),
                             Text(
-                              kost.rating.toStringAsFixed(1),
+                              kost.reviewCount > 0
+                                  ? kost.rating.toStringAsFixed(1)
+                                  : 'Baru',
                               style: const TextStyle(
                                 fontWeight: FontWeight.w800,
                                 fontSize: 12,
                                 color: Color(0xFF92400E),
                               ),
                             ),
-                            Text(
-                              ' (${kost.reviewCount})',
-                              style: TextStyle(
-                                color: Colors.amber.shade800,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w500,
+                            if (kost.reviewCount > 0)
+                              Text(
+                                ' (${kost.reviewCount})',
+                                style: TextStyle(
+                                  color: Colors.amber.shade800,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
-                            ),
                           ],
                         ),
                       ),
@@ -431,7 +481,7 @@ class KostCard extends StatelessWidget {
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      if (kost.electricityIncluded)
+                      if (kost.electricityIncluded && !kost.isDailyStay)
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 8,
@@ -467,7 +517,7 @@ class KostCard extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
                           if (kost.originalPrice != null &&
-                              kost.originalPrice! > kost.pricePerMonth)
+                              kost.originalPrice! > kost.displayPrice)
                             Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
@@ -506,7 +556,7 @@ class KostCard extends StatelessWidget {
                             textBaseline: TextBaseline.alphabetic,
                             children: [
                               Text(
-                                formatRupiah(kost.pricePerMonth),
+                                formatRupiah(kost.displayPrice),
                                 style: const TextStyle(
                                   fontSize: 16.5,
                                   fontWeight: FontWeight.w900,
@@ -515,7 +565,7 @@ class KostCard extends StatelessWidget {
                                 ),
                               ),
                               Text(
-                                ' / bulan',
+                                ' ${kost.displayPriceFullUnit}',
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w500,

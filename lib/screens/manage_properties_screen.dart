@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/booking.dart';
 import '../models/kost.dart';
+import '../models/review.dart';
 import '../models/user_profile.dart';
 import '../services/api_service.dart';
 import '../services/mapbox_service.dart';
 import '../utils/formatters.dart';
 import '../widgets/facility_checkbox_group.dart';
 import '../widgets/location_autocomplete_field.dart';
+import 'add_property_wizard_screen.dart';
 import 'kost_chat_screen.dart';
 import 'kost_detail_screen.dart';
 import 'kost_group_chat_screen.dart';
@@ -28,11 +30,13 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
   late final TabController _tabCtrl;
   List<Kost> _kosts = [];
   List<Kost> _pendingKosts = [];
+  List<ReviewReport> _reviewReports = [];
   List<Booking> _incomingBookings = [];
   bool _loading = true;
   bool _loadingPending = false;
   bool _loadingBookings = true;
   final Set<int> _processingApprovalIds = {};
+  final Set<int> _processingReportIds = {};
   String? _error;
 
   bool get _canApprove => widget.user.canApproveProperties;
@@ -124,6 +128,57 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
     }
   }
 
+  Future<void> _updateIncomingBookingStatus(
+    Booking booking,
+    String nextStatus,
+  ) async {
+    try {
+      await ApiService.updateBookingStatus(booking.id, nextStatus);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.primaryGreen,
+          content: Text('Status pengajuan diubah menjadi $nextStatus.'),
+        ),
+      );
+      _loadIncomingBookings();
+      _loadProperties();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red.shade700,
+          content: Text('Gagal memperbarui status: $e'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _quickAdjustAvailableRooms(Kost kost, int delta) async {
+    final next = (kost.availableRooms + delta) < 0
+        ? 0
+        : kost.availableRooms + delta;
+    if (next == kost.availableRooms) return;
+    try {
+      await ApiService.updateKost(kost.id, {'availableRooms': next});
+      if (!mounted) return;
+      setState(() {
+        final idx = _kosts.indexWhere((k) => k.id == kost.id);
+        if (idx >= 0) {
+          _kosts[idx] = kost.copyWith(availableRooms: next);
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red.shade700,
+          content: Text('Gagal memperbarui sisa kamar: $e'),
+        ),
+      );
+    }
+  }
+
   Future<void> _addApplicantToGroup(Booking booking) async {
     final targetUserId = booking.userId;
     if (targetUserId == null || targetUserId <= 0) {
@@ -192,14 +247,104 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
     if (!_canApprove) return;
     setState(() => _loadingPending = true);
     try {
-      final list = await ApiService.fetchKosts(approvalStatus: 'PENDING');
+      final results = await Future.wait<dynamic>([
+        ApiService.fetchKosts(approvalStatus: 'PENDING'),
+        ApiService.fetchReviewReports(),
+      ]);
       if (!mounted) return;
       setState(() {
-        _pendingKosts = list;
+        _pendingKosts = results[0] as List<Kost>;
+        _reviewReports = results[1] as List<ReviewReport>;
         _loadingPending = false;
       });
     } catch (_) {
       if (mounted) setState(() => _loadingPending = false);
+    }
+  }
+
+  Future<void> _handleDismissReport(ReviewReport report) async {
+    setState(() => _processingReportIds.add(report.id));
+    try {
+      await ApiService.dismissReviewReport(report.id);
+      if (!mounted) return;
+      setState(() {
+        _processingReportIds.remove(report.id);
+        _reviewReports.removeWhere((r) => r.id == report.id);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.primaryGreen,
+          content: Text('Laporan ulasan diabaikan.'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _processingReportIds.remove(report.id));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red.shade700,
+          content: Text(
+            'Gagal mengabaikan laporan: ${e.toString().replaceFirst('Exception: ', '')}',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _handleDeleteReportedReview(ReviewReport report) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text(
+          'Hapus Ulasan?',
+          style: TextStyle(fontWeight: FontWeight.w800),
+        ),
+        content: Text(
+          'Ulasan oleh ${report.reviewAuthorName} akan dihapus permanen dan rating properti akan dihitung ulang.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade600,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Hapus Ulasan'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _processingReportIds.add(report.id));
+    try {
+      await ApiService.deleteReview(report.reviewId);
+      if (!mounted) return;
+      setState(() {
+        _processingReportIds.remove(report.id);
+        _reviewReports.removeWhere((r) => r.reviewId == report.reviewId);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.primaryGreen,
+          content: Text('Ulasan berhasil dihapus.'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _processingReportIds.remove(report.id));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red.shade700,
+          content: Text(
+            'Gagal menghapus ulasan: ${e.toString().replaceFirst('Exception: ', '')}',
+          ),
+        ),
+      );
     }
   }
 
@@ -348,9 +493,12 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
     final districtCtrl = TextEditingController(text: kost.district);
     final addressCtrl = TextEditingController(text: kost.address);
     final landmarkCtrl = TextEditingController(text: kost.nearbyLandmark);
-    final priceCtrl = TextEditingController(text: kost.pricePerMonth.toString());
+    final priceCtrl = TextEditingController(
+      text: kost.displayPrice.toString(),
+    );
     final roomsCtrl = TextEditingController(text: kost.availableRooms.toString());
-    final totalRoomsCtrl = TextEditingController(text: kost.totalRooms.toString());
+    final bedroomsCtrl = TextEditingController(text: kost.bedrooms.toString());
+    final bathroomsCtrl = TextEditingController(text: kost.bathrooms.toString());
     final roomSizeCtrl = TextEditingController(text: kost.roomSize);
     final descCtrl = TextEditingController(text: kost.description);
     List<String> masterRoomFacilities =
@@ -363,10 +511,16 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
     bool loadedMasterFacilities = false;
     final rulesCtrl = TextEditingController(text: kost.rules.join(', '));
 
-    String selectedCategory =
-        ['KOST', 'APARTEMEN', 'KONTRAKAN'].contains(kost.propertyCategory)
-            ? kost.propertyCategory
-            : 'KOST';
+    String selectedCategory = [
+      'KOST',
+      'APARTEMEN',
+      'KONTRAKAN',
+      'HUNIAN_HARIAN',
+    ].contains(kost.propertyCategory)
+        ? kost.propertyCategory
+        : 'KOST';
+    String selectedDailyUnitType =
+        kost.unitType == 'Homestay' ? 'Homestay' : 'Villa';
     String selectedType =
         ['Putri', 'Putra', 'Campur'].contains(kost.type) ? kost.type : 'Campur';
     bool electricityIncluded = kost.electricityIncluded;
@@ -441,6 +595,10 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                           value: 'APARTEMEN', child: Text('Apartemen')),
                       DropdownMenuItem(
                           value: 'KONTRAKAN', child: Text('Rumah Kontrakan')),
+                      DropdownMenuItem(
+                        value: 'HUNIAN_HARIAN',
+                        child: Text('Hunian Harian (Villa / Homestay)'),
+                      ),
                     ],
                     onChanged: (v) {
                       if (v != null) {
@@ -448,6 +606,28 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                       }
                     },
                   ),
+                  if (selectedCategory == 'HUNIAN_HARIAN') ...[
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<String>(
+                      value: selectedDailyUnitType,
+                      decoration: const InputDecoration(
+                        labelText: 'Jenis Hunian Harian',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'Villa', child: Text('Villa')),
+                        DropdownMenuItem(
+                          value: 'Homestay',
+                          child: Text('Homestay'),
+                        ),
+                      ],
+                      onChanged: (v) {
+                        if (v != null) {
+                          setModalState(() => selectedDailyUnitType = v);
+                        }
+                      },
+                    ),
+                  ],
                   const SizedBox(height: 10),
                   TextFormField(
                     controller: nameCtrl,
@@ -461,26 +641,31 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                   const SizedBox(height: 10),
                   Row(
                     children: [
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          value: selectedType,
-                          decoration: const InputDecoration(
-                            labelText: 'Tipe',
-                            border: OutlineInputBorder(),
+                      if (selectedCategory != 'HUNIAN_HARIAN') ...[
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            value: selectedType,
+                            decoration: const InputDecoration(
+                              labelText: 'Tipe',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                  value: 'Putri', child: Text('Putri')),
+                              DropdownMenuItem(
+                                  value: 'Putra', child: Text('Putra')),
+                              DropdownMenuItem(
+                                  value: 'Campur', child: Text('Campur')),
+                            ],
+                            onChanged: (v) {
+                              if (v != null) {
+                                setModalState(() => selectedType = v);
+                              }
+                            },
                           ),
-                          items: const [
-                            DropdownMenuItem(value: 'Putri', child: Text('Putri')),
-                            DropdownMenuItem(value: 'Putra', child: Text('Putra')),
-                            DropdownMenuItem(value: 'Campur', child: Text('Campur')),
-                          ],
-                          onChanged: (v) {
-                            if (v != null) {
-                              setModalState(() => selectedType = v);
-                            }
-                          },
                         ),
-                      ),
-                      const SizedBox(width: 10),
+                        const SizedBox(width: 10),
+                      ],
                       Expanded(
                         child: LocationAutocompleteField(
                           controller: cityCtrl,
@@ -512,9 +697,11 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                         child: TextFormField(
                           controller: priceCtrl,
                           keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            labelText: 'Harga / Bulan (Rp)',
-                            border: OutlineInputBorder(),
+                          decoration: InputDecoration(
+                            labelText: selectedCategory == 'HUNIAN_HARIAN'
+                                ? 'Harga / Malam (Rp)'
+                                : 'Harga / Bulan (Rp)',
+                            border: const OutlineInputBorder(),
                           ),
                           validator: (v) =>
                               (v == null || int.tryParse(v.trim()) == null)
@@ -531,25 +718,16 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                         child: TextFormField(
                           controller: roomsCtrl,
                           keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            labelText: 'Kamar Tersedia',
-                            border: OutlineInputBorder(),
+                          decoration: InputDecoration(
+                            labelText: selectedCategory == 'HUNIAN_HARIAN'
+                                ? 'Unit Tersedia'
+                                : 'Kamar Tersedia',
+                            border: const OutlineInputBorder(),
                           ),
                           validator: (v) =>
                               (v == null || int.tryParse(v.trim()) == null)
                                   ? 'Angka'
                                   : null,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: TextFormField(
-                          controller: totalRoomsCtrl,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            labelText: 'Total Kamar',
-                            border: OutlineInputBorder(),
-                          ),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -647,6 +825,43 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                       ],
                     ),
                   ),
+                  if (selectedCategory == 'HUNIAN_HARIAN' ||
+                      selectedCategory == 'KONTRAKAN') ...[
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: bedroomsCtrl,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'Kamar Tidur',
+                              border: OutlineInputBorder(),
+                            ),
+                            validator: (v) =>
+                                (v == null || int.tryParse(v.trim()) == null)
+                                    ? 'Angka'
+                                    : null,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextFormField(
+                            controller: bathroomsCtrl,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'Kamar Mandi',
+                              border: OutlineInputBorder(),
+                            ),
+                            validator: (v) =>
+                                (v == null || int.tryParse(v.trim()) == null)
+                                    ? 'Angka'
+                                    : null,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: 10),
                   FacilityCheckboxGroup(
                     title: 'Fasilitas Kamar',
@@ -677,7 +892,7 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                   TextFormField(
                     controller: rulesCtrl,
                     decoration: const InputDecoration(
-                      labelText: 'Peraturan Kost (pisahkan dengan koma)',
+                      labelText: 'Peraturan (pisahkan dengan koma)',
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -726,21 +941,32 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                                     .where((e) => e.isNotEmpty)
                                     .toList();
 
+                                final parsedPrice =
+                                    int.parse(priceCtrl.text.trim());
+                                final isDaily =
+                                    selectedCategory == 'HUNIAN_HARIAN';
                                 await ApiService.updateKost(kost.id, {
                                   'propertyCategory': selectedCategory,
+                                  if (isDaily) 'unitType': selectedDailyUnitType,
                                   'name': nameCtrl.text.trim(),
-                                  'type': selectedType,
+                                  'type': isDaily ? 'Campur' : selectedType,
                                   'city': cityCtrl.text.trim(),
                                   'district': districtCtrl.text.trim(),
                                   'address': addressCtrl.text.trim(),
                                   'nearbyLandmark': landmarkCtrl.text.trim(),
-                                  'pricePerMonth':
-                                      int.parse(priceCtrl.text.trim()),
+                                  'pricePerMonth': isDaily ? 0 : parsedPrice,
+                                  if (isDaily) 'pricePerDay': parsedPrice,
                                   'availableRooms':
                                       int.parse(roomsCtrl.text.trim()),
-                                  'totalRooms': int.tryParse(
-                                          totalRoomsCtrl.text.trim()) ??
-                                      kost.totalRooms,
+                                  if (isDaily ||
+                                      selectedCategory == 'KONTRAKAN') ...{
+                                    'bedrooms':
+                                        int.tryParse(bedroomsCtrl.text.trim()) ??
+                                            1,
+                                    'bathrooms': int.tryParse(
+                                            bathroomsCtrl.text.trim()) ??
+                                        1,
+                                  },
                                   'roomSize': roomSizeCtrl.text.trim(),
                                   'description': descCtrl.text.trim(),
                                   'roomFacilities':
@@ -806,13 +1032,10 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
 
   @override
   Widget build(BuildContext context) {
-    final totalRooms =
-        _kosts.fold<int>(0, (sum, k) => sum + k.totalRooms);
     final availableRooms =
         _kosts.fold<int>(0, (sum, k) => sum + k.availableRooms);
-    final occupiedRooms = (totalRooms - availableRooms).clamp(0, totalRooms);
-    final occupancyPct =
-        totalRooms > 0 ? ((occupiedRooms / totalRooms) * 100).round() : 0;
+    final availableProperties =
+        _kosts.where((k) => k.availableRooms > 0).length;
 
     return Scaffold(
       backgroundColor: AppColors.surfaceBg,
@@ -830,14 +1053,44 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
           labelStyle: const TextStyle(fontWeight: FontWeight.w700),
           tabs: [
             Tab(text: 'Properti (${_kosts.length})'),
-            Tab(text: 'Pengajuan Masuk (${_incomingBookings.length})'),
-            if (_canApprove) Tab(text: 'Approval (${_pendingKosts.length})'),
+            Tab(text: 'Jadwal Survei (${_incomingBookings.length})'),
+            if (_canApprove)
+              Tab(
+                text:
+                    'Approval (${_pendingKosts.length + _reviewReports.length})',
+              ),
           ],
         ),
       ),
+      floatingActionButton: widget.user.canManageKost
+          ? FloatingActionButton.extended(
+              onPressed: () async {
+                final created = await Navigator.of(context).push<bool>(
+                  MaterialPageRoute(
+                    builder: (_) => AddPropertyWizardScreen(
+                      currentUser: widget.user,
+                    ),
+                  ),
+                );
+                if (created == true && mounted) {
+                  _loadProperties();
+                  if (_canApprove) {
+                    _loadPendingProperties();
+                  }
+                }
+              },
+              backgroundColor: AppColors.primaryGreen,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add_home_work_rounded),
+              label: const Text(
+                'Tambah Properti',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+            )
+          : null,
       body: Column(
         children: [
-          // Dashboard Okupansi Strip
+          // Dashboard Ringkasan Properti Strip
           Container(
             color: Colors.white,
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
@@ -850,9 +1103,9 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                 ),
                 const SizedBox(width: 8),
                 _buildMetricBox(
-                  label: 'Okupansi',
-                  value: '$occupancyPct%',
-                  icon: Icons.pie_chart_rounded,
+                  label: 'Tersedia',
+                  value: '$availableProperties',
+                  icon: Icons.check_circle_outline_rounded,
                 ),
                 const SizedBox(width: 8),
                 _buildMetricBox(
@@ -968,19 +1221,15 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                         vertical: 3,
                       ),
                       decoration: BoxDecoration(
-                        color: b.isSurvey
-                            ? Colors.blue.shade50
-                            : AppColors.lightGreenBg,
+                        color: Colors.blue.shade50,
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
-                        b.isSurvey ? 'SURVEI' : 'SEWA',
+                        'SURVEI',
                         style: TextStyle(
                           fontSize: 10.5,
                           fontWeight: FontWeight.w800,
-                          color: b.isSurvey
-                              ? Colors.blue.shade700
-                              : AppColors.darkGreen,
+                          color: Colors.blue.shade700,
                         ),
                       ),
                     ),
@@ -1015,9 +1264,7 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  b.isSurvey
-                      ? 'Jadwal Survei: ${b.surveyDateTime}'
-                      : 'Mulai: ${b.startDate} • ${b.durationMonths} bln • Estimasi ${formatRupiah(b.totalPrice)}',
+                  'Jadwal Survei: ${b.surveyDateTime.isNotEmpty ? b.surveyDateTime : b.startDate}',
                   style: const TextStyle(
                     fontSize: 12,
                     color: AppColors.textSecondary,
@@ -1081,6 +1328,7 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                                 builder: (_) => KostChatScreen(
                                   kost: b.kost!,
                                   peerUserId: b.userId,
+                                  peerName: b.tenantName,
                                 ),
                               ),
                             );
@@ -1126,6 +1374,75 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                     ],
                   ],
                 ),
+                if (b.status == 'TERKIRIM' ||
+                    b.status == 'MENUNGGU KONFIRMASI') ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red.shade700,
+                            side: BorderSide(color: Colors.red.shade300),
+                            minimumSize: const Size(0, 36),
+                          ),
+                          onPressed: () =>
+                              _updateIncomingBookingStatus(b, 'DITOLAK'),
+                          icon: const Icon(Icons.close_rounded, size: 16),
+                          label: const Text(
+                            'Tolak',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primaryGreen,
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(0, 36),
+                          ),
+                          onPressed: () =>
+                              _updateIncomingBookingStatus(b, 'DISETUJUI'),
+                          icon: const Icon(Icons.check_rounded, size: 16),
+                          label: const Text(
+                            'Setujui',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ] else if (b.status == 'DISETUJUI' || b.status == 'AKTIF') ...[
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.darkGreen,
+                        side: const BorderSide(color: AppColors.primaryGreen),
+                        minimumSize: const Size(0, 36),
+                      ),
+                      onPressed: () =>
+                          _updateIncomingBookingStatus(b, 'SELESAI'),
+                      icon: const Icon(Icons.task_alt_rounded, size: 16),
+                      label: const Text(
+                        'Tandai Survei Selesai',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           );
@@ -1341,15 +1658,6 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                                                     ),
                                                   ),
                                                 ),
-                                                const SizedBox(width: 6),
-                                                Text(
-                                                  'Sisa ${kost.availableRooms}',
-                                                  style: TextStyle(
-                                                    fontSize: 11,
-                                                    color: Colors.grey.shade600,
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                                ),
                                                 const Spacer(),
                                                 _buildApprovalStatusBadge(kost),
                                               ],
@@ -1392,16 +1700,112 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                                             const SizedBox(height: 6),
                                             Row(
                                               children: [
-                                                Text(
-                                                  '${formatRupiah(kost.pricePerMonth)}/bln',
-                                                  style: const TextStyle(
-                                                    fontSize: 13.5,
-                                                    fontWeight: FontWeight.w800,
-                                                    color:
-                                                        AppColors.primaryGreen,
+                                                const Text(
+                                                  'Kamar:',
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    color: AppColors.textSecondary,
+                                                    fontWeight: FontWeight.w600,
                                                   ),
                                                 ),
-                                                const Spacer(),
+                                                const SizedBox(width: 6),
+                                                InkWell(
+                                                  onTap: kost.availableRooms > 0
+                                                      ? () =>
+                                                          _quickAdjustAvailableRooms(
+                                                            kost,
+                                                            -1,
+                                                          )
+                                                      : null,
+                                                  borderRadius:
+                                                      BorderRadius.circular(6),
+                                                  child: Container(
+                                                    padding:
+                                                        const EdgeInsets.all(3),
+                                                    decoration: BoxDecoration(
+                                                      color: kost.availableRooms >
+                                                              0
+                                                          ? const Color(
+                                                              0xFFF3F6F9)
+                                                          : Colors
+                                                              .grey.shade100,
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                              6),
+                                                    ),
+                                                    child: Icon(
+                                                      Icons.remove_rounded,
+                                                      size: 14,
+                                                      color: kost.availableRooms >
+                                                              0
+                                                          ? AppColors
+                                                              .textPrimary
+                                                          : Colors
+                                                              .grey.shade400,
+                                                    ),
+                                                  ),
+                                                ),
+                                                Padding(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(horizontal: 6),
+                                                  child: Text(
+                                                    kost.availableRooms > 0
+                                                        ? 'Sisa ${kost.availableRooms}'
+                                                        : 'Penuh',
+                                                    style: TextStyle(
+                                                      fontSize: 11.5,
+                                                      color: kost.availableRooms > 0
+                                                          ? Colors.grey.shade800
+                                                          : Colors.red.shade700,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                    ),
+                                                  ),
+                                                ),
+                                                InkWell(
+                                                  onTap: () =>
+                                                      _quickAdjustAvailableRooms(
+                                                    kost,
+                                                    1,
+                                                  ),
+                                                  borderRadius:
+                                                      BorderRadius.circular(6),
+                                                  child: Container(
+                                                    padding:
+                                                        const EdgeInsets.all(3),
+                                                    decoration: BoxDecoration(
+                                                      color: const Color(
+                                                          0xFFF3F6F9),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                              6),
+                                                    ),
+                                                    child: const Icon(
+                                                      Icons.add_rounded,
+                                                      size: 14,
+                                                      color: AppColors
+                                                          .textPrimary,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 6),
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    '${formatRupiah(kost.displayPrice)}${kost.displayPriceShortUnit}',
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: const TextStyle(
+                                                      fontSize: 13.5,
+                                                      fontWeight: FontWeight.w800,
+                                                      color:
+                                                          AppColors.primaryGreen,
+                                                    ),
+                                                  ),
+                                                ),
                                                 IconButton(
                                                   tooltip: 'Grup Penghuni',
                                                   visualDensity:
@@ -1516,7 +1920,7 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
         child: CircularProgressIndicator(color: AppColors.primaryGreen),
       );
     }
-    if (_pendingKosts.isEmpty) {
+    if (_pendingKosts.isEmpty && _reviewReports.isEmpty) {
       return RefreshIndicator(
         color: AppColors.primaryGreen,
         onRefresh: _loadPendingProperties,
@@ -1525,7 +1929,7 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
             SizedBox(height: 120),
             Center(
               child: Text(
-                'Tidak ada properti yang menunggu persetujuan.',
+                'Tidak ada properti yang menunggu persetujuan atau laporan ulasan.',
                 style: TextStyle(color: AppColors.textSecondary),
               ),
             ),
@@ -1533,18 +1937,218 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
         ),
       );
     }
+    final items = <Widget>[];
+    if (_reviewReports.isNotEmpty) {
+      items.add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Text(
+            'Laporan Ulasan (${_reviewReports.length})',
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+            ),
+          ),
+        ),
+      );
+      for (final report in _reviewReports) {
+        final isProcessingReport = _processingReportIds.contains(report.id);
+        items.add(
+          Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.red.shade100),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        report.kostName.isNotEmpty
+                            ? report.kostName
+                            : 'Properti #${report.kostId}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.primaryGreen,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        report.reason,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.red.shade700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Dilaporkan oleh: ${report.reporterName}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade700,
+                  ),
+                ),
+                if (report.details != null &&
+                    report.details!.trim().isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Catatan pelapor: ${report.details!.trim()}',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      color: Colors.grey.shade800,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Ulasan oleh: ${report.reviewAuthorName}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ),
+                          Icon(
+                            Icons.star_rounded,
+                            size: 14,
+                            color: Colors.amber.shade700,
+                          ),
+                          const SizedBox(width: 2),
+                          Text(
+                            report.reviewOverallRating.toStringAsFixed(1),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        report.reviewComment,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          height: 1.35,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: isProcessingReport
+                            ? null
+                            : () => _handleDismissReport(report),
+                        child: const Text('Abaikan'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red.shade600,
+                          foregroundColor: Colors.white,
+                        ),
+                        onPressed: isProcessingReport
+                            ? null
+                            : () => _handleDeleteReportedReview(report),
+                        child: isProcessingReport
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text('Hapus Ulasan'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    }
+    if (_pendingKosts.isNotEmpty) {
+      items.add(
+        Padding(
+          padding: EdgeInsets.only(
+            top: _reviewReports.isNotEmpty ? 6 : 0,
+            bottom: 10,
+          ),
+          child: Text(
+            'Properti Menunggu Persetujuan (${_pendingKosts.length})',
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+            ),
+          ),
+        ),
+      );
+    }
+
     return RefreshIndicator(
       color: AppColors.primaryGreen,
       onRefresh: _loadPendingProperties,
-      child: ListView.separated(
+      child: ListView.builder(
         padding: const EdgeInsets.all(16),
-        itemCount: _pendingKosts.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 12),
+        itemCount: items.length + _pendingKosts.length,
         itemBuilder: (context, index) {
-          final kost = _pendingKosts[index];
+          if (index < items.length) {
+            return items[index];
+          }
+          final kost = _pendingKosts[index - items.length];
           final isProcessing = _processingApprovalIds.contains(kost.id);
           final thumb = kost.images.isNotEmpty ? kost.images.first : '';
-          return InkWell(
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: InkWell(
             borderRadius: BorderRadius.circular(16),
             onTap: () {
               Navigator.of(context).push(
@@ -1711,7 +2315,7 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                             ),
                             const SizedBox(height: 3),
                             Text(
-                              '${formatRupiah(kost.pricePerMonth)}/bln • ${kost.totalRooms} unit',
+                              '${formatRupiah(kost.displayPrice)}${kost.displayPriceShortUnit} • ${kost.availableRooms > 0 ? 'Sisa ${kost.availableRooms} kamar' : 'Penuh'}',
                               style: const TextStyle(
                                 fontSize: 12.5,
                                 fontWeight: FontWeight.w700,
@@ -1791,6 +2395,7 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                 ],
               ),
             ),
+          ),
           );
         },
       ),

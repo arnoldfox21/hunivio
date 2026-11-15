@@ -22,6 +22,7 @@ class AuthService {
   static const String _prefsLoggedInKey = 'hunivio_is_logged_in';
   static const String _prefsUserKey = 'hunivio_cached_user';
   static const String _prefsTokenKey = 'hunivio_auth_token';
+  static const String _prefsAuthMethodKey = 'hunivio_auth_method';
 
   static final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: const ['email', 'profile'],
@@ -38,10 +39,14 @@ class AuthService {
   static Future<void> _saveSession(
     UserProfile user, {
     String? accessToken,
+    String? authMethod,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_prefsLoggedInKey, true);
     await prefs.setString(_prefsUserKey, jsonEncode(user.toJson()));
+    if (authMethod != null && authMethod.trim().isNotEmpty) {
+      await prefs.setString(_prefsAuthMethodKey, authMethod.trim());
+    }
     if (accessToken != null && accessToken.trim().isNotEmpty) {
       await prefs.setString(_prefsTokenKey, accessToken.trim());
       ApiService.setAuthToken(accessToken.trim());
@@ -53,6 +58,7 @@ class AuthService {
     await prefs.remove(_prefsLoggedInKey);
     await prefs.remove(_prefsUserKey);
     await prefs.remove(_prefsTokenKey);
+    await prefs.remove(_prefsAuthMethodKey);
     ApiService.setAuthToken(null);
   }
 
@@ -78,14 +84,42 @@ class AuthService {
   /// Mempertahankan sesi login tersimpan dan melakukan refresh token Google.
   /// Jika refresh token gagal, sesi akan otomatis logout.
   static Future<UserProfile?> restoreAndRefreshSession() async {
+    ApiService.onSessionInvalidated ??= (_) => forceSignOut();
     final cachedUser = await _loadCachedUser();
     if (cachedUser == null) {
       currentUserNotifier.value = null;
       return null;
     }
+    if (cachedUser.isBanned) {
+      await forceSignOut();
+      return null;
+    }
 
     // Pertahankan status login sementara proses refresh token berjalan
     currentUserNotifier.value = cachedUser;
+
+    final prefs = await SharedPreferences.getInstance();
+    final authMethod = prefs.getString(_prefsAuthMethodKey) ?? 'google';
+    if (authMethod == 'email') {
+      try {
+        final me = await ApiService.fetchMe();
+        if (me == null) {
+          await signOut();
+          return null;
+        }
+        if (me.isBanned) {
+          await forceSignOut();
+          return null;
+        }
+        await _saveSession(me, authMethod: 'email');
+        currentUserNotifier.value = me;
+        ApiService.onSessionInvalidated ??= (_) => forceSignOut();
+        return me;
+      } catch (_) {
+        // Pertahankan sesi lokal jika offline, kecuali token invalid (ditangani onSessionInvalidated)
+        return cachedUser;
+      }
+    }
 
     try {
       final account =
@@ -130,6 +164,7 @@ class AuthService {
 
       await _saveSession(result.user, accessToken: result.accessToken);
       currentUserNotifier.value = result.user;
+      ApiService.onSessionInvalidated ??= (_) => forceSignOut();
       return result.user;
     } catch (_) {
       // Refresh token gagal -> logout otomatis
@@ -199,9 +234,44 @@ class AuthService {
       idToken: idToken,
     );
 
-    await _saveSession(result.user, accessToken: result.accessToken);
+    await _saveSession(
+      result.user,
+      accessToken: result.accessToken,
+      authMethod: 'google',
+    );
     currentUserNotifier.value = result.user;
     return result;
+  }
+
+  static Future<GoogleAuthResult> signInWithEmail({
+    required String email,
+    required String password,
+  }) async {
+    final result = await ApiService.loginWithEmail(
+      email: email,
+      password: password,
+    );
+    await _saveSession(
+      result.user,
+      accessToken: result.accessToken,
+      authMethod: 'email',
+    );
+    currentUserNotifier.value = result.user;
+    ApiService.onSessionInvalidated ??= (_) => forceSignOut();
+    return result;
+  }
+
+  static Future<UserProfile> setOrChangePassword({
+    String? currentPassword,
+    required String newPassword,
+  }) async {
+    final updated = await ApiService.setOrChangePassword(
+      currentPassword: currentPassword,
+      newPassword: newPassword,
+    );
+    await _saveSession(updated);
+    currentUserNotifier.value = updated;
+    return updated;
   }
 
   static String _buildDefaultAvatarUrl(String name) {
@@ -237,6 +307,7 @@ class AuthService {
     String? city,
     String? avatarUrl,
     String? coverUrl,
+    bool? showWhatsapp,
   }) async {
     final user = currentUserNotifier.value;
     if (user == null) {
@@ -252,6 +323,7 @@ class AuthService {
       city: city,
       avatarUrl: avatarUrl,
       coverUrl: coverUrl,
+      showWhatsapp: showWhatsapp,
     );
     await _saveSession(updated);
     currentUserNotifier.value = updated;
@@ -273,6 +345,29 @@ class AuthService {
     await _saveSession(result.user, accessToken: result.accessToken);
     currentUserNotifier.value = result.user;
     return result.user;
+  }
+
+  static Future<void> verifyActiveSession() async {
+    if (currentUserNotifier.value == null) return;
+    try {
+      final me = await ApiService.fetchMe();
+      if (me != null) {
+        if (me.isBanned) {
+          await forceSignOut();
+        } else {
+          await _saveSession(me);
+          currentUserNotifier.value = me;
+        }
+      }
+    } catch (_) {}
+  }
+
+  static Future<void> forceSignOut() async {
+    try {
+      await _googleSignIn.signOut();
+    } catch (_) {}
+    await _clearSession();
+    currentUserNotifier.value = null;
   }
 
   static Future<void> signOut() async {

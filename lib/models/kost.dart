@@ -2,7 +2,7 @@ class Kost {
   final int id;
   final String name;
   final String slug;
-  final String propertyCategory; // 'KOST' | 'APARTEMEN' | 'KONTRAKAN'
+  final String propertyCategory; // 'KOST' | 'APARTEMEN' | 'KONTRAKAN' | 'HUNIAN_HARIAN'
   final String type; // 'Putra' | 'Putri' | 'Campur'
   final String city;
   final String district;
@@ -17,7 +17,6 @@ class Kost {
   final double rating;
   final int reviewCount;
   final int availableRooms;
-  final int totalRooms;
   final String roomSize;
   final String unitType;
   final String furnishing;
@@ -37,6 +36,7 @@ class Kost {
   final List<String> images;
   final String ownerName;
   final String ownerPhone;
+  final bool showOwnerWhatsapp;
   final int ownerId;
   final String nearbyLandmark;
   final double? latitude;
@@ -50,7 +50,7 @@ class Kost {
   bool get isApproved => approvalStatus.toUpperCase() == 'APPROVED';
   bool get isRejected => approvalStatus.toUpperCase() == 'REJECTED';
 
-  Kost copyWith({bool? isFavorite}) {
+  Kost copyWith({bool? isFavorite, int? availableRooms}) {
     return Kost(
       id: id,
       name: name,
@@ -69,8 +69,7 @@ class Kost {
       discountPercent: discountPercent,
       rating: rating,
       reviewCount: reviewCount,
-      availableRooms: availableRooms,
-      totalRooms: totalRooms,
+      availableRooms: availableRooms ?? this.availableRooms,
       roomSize: roomSize,
       unitType: unitType,
       furnishing: furnishing,
@@ -90,6 +89,7 @@ class Kost {
       images: images,
       ownerName: ownerName,
       ownerPhone: ownerPhone,
+      showOwnerWhatsapp: showOwnerWhatsapp,
       ownerId: ownerId,
       nearbyLandmark: nearbyLandmark,
       latitude: latitude,
@@ -100,12 +100,23 @@ class Kost {
     );
   }
 
+  bool get isDailyStay => propertyCategory.toUpperCase() == 'HUNIAN_HARIAN';
+  int get displayPrice =>
+      isDailyStay && (pricePerDay ?? 0) > 0 ? pricePerDay! : pricePerMonth;
+  String get displayPriceShortUnit => isDailyStay ? '/malam' : '/bln';
+  String get displayPriceFullUnit => isDailyStay ? 'per malam' : 'per bulan';
+
   String get categoryLabel {
     switch (propertyCategory.toUpperCase()) {
       case 'APARTEMEN':
         return 'Apartemen';
       case 'KONTRAKAN':
         return 'Kontrakan';
+      case 'HUNIAN_HARIAN':
+        final sub = unitType.trim();
+        if (sub.toLowerCase() == 'villa') return 'Villa';
+        if (sub.toLowerCase() == 'homestay') return 'Homestay';
+        return 'Hunian Harian';
       default:
         return 'Kost';
     }
@@ -130,7 +141,6 @@ class Kost {
     required this.rating,
     required this.reviewCount,
     required this.availableRooms,
-    required this.totalRooms,
     required this.roomSize,
     this.unitType = '',
     this.furnishing = '',
@@ -150,6 +160,7 @@ class Kost {
     required this.images,
     required this.ownerName,
     required this.ownerPhone,
+    this.showOwnerWhatsapp = false,
     this.ownerId = 1,
     required this.nearbyLandmark,
     this.latitude,
@@ -187,16 +198,13 @@ class Kost {
           : int.tryParse('${json['discountPercent']}') ?? 0,
       rating: json['rating'] is num
           ? (json['rating'] as num).toDouble()
-          : double.tryParse('${json['rating']}') ?? 4.5,
+          : double.tryParse('${json['rating']}') ?? 0.0,
       reviewCount: json['reviewCount'] is int
           ? json['reviewCount']
           : int.tryParse('${json['reviewCount']}') ?? 0,
       availableRooms: json['availableRooms'] is int
           ? json['availableRooms']
           : int.tryParse('${json['availableRooms']}') ?? 0,
-      totalRooms: json['totalRooms'] is int
-          ? json['totalRooms']
-          : int.tryParse('${json['totalRooms']}') ?? 10,
       roomSize: json['roomSize'] ?? '3 x 4 m',
       unitType: json['unitType']?.toString() ?? '',
       furnishing: json['furnishing']?.toString() ?? '',
@@ -216,6 +224,7 @@ class Kost {
       images: _parseStringList(json['images']),
       ownerName: json['ownerName'] ?? 'Pemilik Kost',
       ownerPhone: json['ownerPhone'] ?? '6281234567890',
+      showOwnerWhatsapp: json['showOwnerWhatsapp'] == true,
       ownerId: json['ownerId'] is int
           ? json['ownerId']
           : int.tryParse('${json['ownerId']}') ?? 1,

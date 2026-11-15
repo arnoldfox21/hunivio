@@ -10,8 +10,12 @@ class UserProfile {
   final String city;
   final String coverUrl;
   final String role;
+  final bool showWhatsapp;
+  final bool isBanned;
+  final String? bannedAt;
   final bool onboardingCompleted;
   final String preferredCategory;
+  final bool hasPassword;
   final String lastLoginAt;
   final String createdAt;
 
@@ -27,8 +31,12 @@ class UserProfile {
     this.city = '',
     this.coverUrl = '',
     required this.role,
+    this.showWhatsapp = false,
+    this.isBanned = false,
+    this.bannedAt,
     this.onboardingCompleted = true,
     this.preferredCategory = '',
+    this.hasPassword = false,
     required this.lastLoginAt,
     required this.createdAt,
   });
@@ -46,10 +54,14 @@ class UserProfile {
       city: json['city']?.toString() ?? '',
       coverUrl: json['coverUrl']?.toString() ?? '',
       role: json['role']?.toString() ?? 'PENYEWA',
+      showWhatsapp: json['showWhatsapp'] == true,
+      isBanned: json['isBanned'] == true,
+      bannedAt: json['bannedAt']?.toString(),
       onboardingCompleted: json['onboardingCompleted'] is bool
           ? json['onboardingCompleted'] as bool
           : true,
       preferredCategory: json['preferredCategory']?.toString() ?? '',
+      hasPassword: json['hasPassword'] == true,
       lastLoginAt: json['lastLoginAt']?.toString() ?? '',
       createdAt: json['createdAt']?.toString() ?? '',
     );
@@ -68,8 +80,12 @@ class UserProfile {
       'city': city,
       'coverUrl': coverUrl,
       'role': role,
+      'showWhatsapp': showWhatsapp,
+      'isBanned': isBanned,
+      if (bannedAt != null) 'bannedAt': bannedAt,
       'onboardingCompleted': onboardingCompleted,
       'preferredCategory': preferredCategory,
+      'hasPassword': hasPassword,
       'lastLoginAt': lastLoginAt,
       'createdAt': createdAt,
     };

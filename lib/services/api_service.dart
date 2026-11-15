@@ -30,6 +30,23 @@ class ApiService {
 
   static String _baseUrl = localBaseUrl;
   static String? _authToken;
+  static void Function(String? reason)? onSessionInvalidated;
+
+  static void _handleAuthRejectionIfNeeded(int statusCode, String body) {
+    if (statusCode == 401 || statusCode == 403) {
+      String? msg;
+      try {
+        final decoded = jsonDecode(body);
+        if (decoded is Map && decoded['message'] != null) {
+          msg = decoded['message'].toString();
+        }
+      } catch (_) {}
+      if (statusCode == 401 ||
+          (msg != null && msg.toLowerCase().contains('diblokir'))) {
+        onSessionInvalidated?.call(msg);
+      }
+    }
+  }
 
   static String get baseUrl => _baseUrl;
   static String? get authToken => _authToken;
@@ -56,6 +73,7 @@ class ApiService {
   static Future<List<Kost>> fetchKosts({
     String? search,
     String? propertyCategory,
+    String? unitType,
     String? type,
     String? city,
     String? facility,
@@ -71,6 +89,7 @@ class ApiService {
     final res = await fetchKostsPaginated(
       search: search,
       propertyCategory: propertyCategory,
+      unitType: unitType,
       type: type,
       city: city,
       facility: facility,
@@ -89,6 +108,7 @@ class ApiService {
   static Future<PaginatedKostsResult> fetchKostsPaginated({
     String? search,
     String? propertyCategory,
+    String? unitType,
     String? type,
     String? city,
     String? facility,
@@ -111,6 +131,9 @@ class ApiService {
         propertyCategory.isNotEmpty &&
         propertyCategory != 'SEMUA') {
       queryParams['propertyCategory'] = propertyCategory;
+    }
+    if (unitType != null && unitType.isNotEmpty && unitType != 'Semua') {
+      queryParams['unitType'] = unitType;
     }
     if (type != null && type.isNotEmpty && type != 'Semua') {
       queryParams['type'] = type;
@@ -196,6 +219,7 @@ class ApiService {
 
   static Future<List<Kost>> fetchMapPoints({
     String? propertyCategory,
+    String? unitType,
     String? type,
     String? city,
   }) async {
@@ -204,6 +228,12 @@ class ApiService {
         propertyCategory.isNotEmpty &&
         propertyCategory != 'SEMUA') {
       queryParams['propertyCategory'] = propertyCategory;
+    }
+    if (unitType != null && unitType.isNotEmpty && unitType != 'Semua') {
+      queryParams['unitType'] = unitType;
+    }
+    if (unitType != null && unitType.isNotEmpty && unitType != 'Semua') {
+      queryParams['unitType'] = unitType;
     }
     if (type != null && type.isNotEmpty && type != 'Semua') {
       queryParams['type'] = type;
@@ -411,10 +441,8 @@ class ApiService {
     required String tenantName,
     required String tenantPhone,
     required String startDate,
-    required int durationMonths,
-    String bookingType = 'SEWA',
+    String bookingType = 'SURVEI',
     String surveyDateTime = '',
-    String paymentMethod = 'COD',
     String? notes,
   }) async {
     final uri = Uri.parse('$_baseUrl/bookings');
@@ -429,10 +457,8 @@ class ApiService {
         'tenantName': tenantName,
         'tenantPhone': tenantPhone,
         'startDate': startDate,
-        'durationMonths': durationMonths,
         'bookingType': bookingType,
         'surveyDateTime': surveyDateTime,
-        'paymentMethod': paymentMethod,
         'notes': notes ?? '',
       });
       request.add(utf8.encode(payload));
@@ -442,7 +468,7 @@ class ApiService {
         final decoded = jsonDecode(body) as Map<String, dynamic>;
         return Booking.fromJson(decoded);
       } else {
-        String msg = 'Gagal membuat pengajuan sewa. Silakan coba lagi.';
+        String msg = 'Gagal membuat pengajuan survei. Silakan coba lagi.';
         try {
           final err = jsonDecode(body);
           if (err is Map && err['message'] != null) {
@@ -546,35 +572,6 @@ class ApiService {
     }
   }
 
-  static Future<Booking> payBooking(
-    int bookingId, {
-    String? paymentMethod,
-  }) async {
-    final uri = Uri.parse('$_baseUrl/bookings/$bookingId/pay');
-    final client = HttpClient();
-    client.connectionTimeout = const Duration(seconds: 6);
-    try {
-      final request = _attachAuth(await client.postUrl(uri));
-      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
-      request.add(
-        utf8.encode(
-          jsonEncode({
-            if (paymentMethod != null) 'paymentMethod': paymentMethod,
-          }),
-        ),
-      );
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        return Booking.fromJson(jsonDecode(body) as Map<String, dynamic>);
-      } else {
-        throw Exception('Gagal memproses pembayaran.');
-      }
-    } finally {
-      client.close();
-    }
-  }
-
   static Future<GoogleAuthResult> loginOrRegisterWithGoogle({
     required String googleId,
     required String email,
@@ -619,6 +616,86 @@ class ApiService {
     }
   }
 
+  static Future<GoogleAuthResult> loginWithEmail({
+    required String email,
+    required String password,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/auth/login');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 12);
+    try {
+      final request = await client.postUrl(uri);
+      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
+      request.add(
+        utf8.encode(
+          jsonEncode({
+            'email': email.trim(),
+            'password': password,
+          }),
+        ),
+      );
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final decoded = jsonDecode(body) as Map<String, dynamic>;
+        return GoogleAuthResult.fromJson(decoded);
+      } else {
+        String msg = 'Gagal masuk (${response.statusCode}).';
+        try {
+          final errJson = jsonDecode(body);
+          if (errJson is Map<String, dynamic> && errJson['message'] != null) {
+            final rawMsg = errJson['message'];
+            msg = rawMsg is List ? rawMsg.join(', ') : rawMsg.toString();
+          }
+        } catch (_) {}
+        throw Exception(msg);
+      }
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<UserProfile> setOrChangePassword({
+    String? currentPassword,
+    required String newPassword,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/auth/password');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 10);
+    try {
+      final request = _attachAuth(await client.patchUrl(uri));
+      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
+      request.add(
+        utf8.encode(
+          jsonEncode({
+            if (currentPassword != null && currentPassword.isNotEmpty)
+              'currentPassword': currentPassword,
+            'newPassword': newPassword,
+          }),
+        ),
+      );
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final decoded = jsonDecode(body) as Map<String, dynamic>;
+        final userMap = decoded['user'] as Map<String, dynamic>;
+        return UserProfile.fromJson(userMap);
+      } else {
+        String msg = 'Gagal menyimpan password (${response.statusCode}).';
+        try {
+          final errJson = jsonDecode(body);
+          if (errJson is Map<String, dynamic> && errJson['message'] != null) {
+            final rawMsg = errJson['message'];
+            msg = rawMsg is List ? rawMsg.join(', ') : rawMsg.toString();
+          }
+        } catch (_) {}
+        throw Exception(msg);
+      }
+    } finally {
+      client.close();
+    }
+  }
+
   static Future<UserProfile> updateUserProfile({
     required int userId,
     required String name,
@@ -629,6 +706,7 @@ class ApiService {
     String? city,
     String? avatarUrl,
     String? coverUrl,
+    bool? showWhatsapp,
   }) async {
     final uri = Uri.parse('$_baseUrl/auth/users/$userId');
     final client = HttpClient();
@@ -645,6 +723,7 @@ class ApiService {
         if (city != null) 'city': city,
         if (avatarUrl != null && avatarUrl.isNotEmpty) 'avatarUrl': avatarUrl,
         if (coverUrl != null) 'coverUrl': coverUrl,
+        if (showWhatsapp != null) 'showWhatsapp': showWhatsapp,
       });
       request.add(utf8.encode(payload));
       final response = await request.close();
@@ -758,8 +837,16 @@ class ApiService {
     }
   }
 
-  static Future<List<OwnerPost>> fetchOwnerPosts(int ownerId) async {
-    final uri = Uri.parse('$_baseUrl/posts?ownerId=$ownerId');
+  static Future<List<OwnerPost>> fetchOwnerPosts(
+    int ownerId, {
+    int? viewerId,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/posts').replace(
+      queryParameters: {
+        'ownerId': '$ownerId',
+        if (viewerId != null) 'viewerId': '$viewerId',
+      },
+    );
     final client = HttpClient();
     client.connectionTimeout = const Duration(seconds: 6);
     try {
@@ -1508,6 +1595,273 @@ class ApiService {
       return [];
     } catch (_) {
       return [];
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<void> reportReview({
+    required int reviewId,
+    required String reason,
+    String? details,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/reviews/$reviewId/report');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 6);
+    try {
+      final request = _attachAuth(await client.postUrl(uri));
+      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
+      request.add(
+        utf8.encode(
+          jsonEncode({
+            'reason': reason,
+            if (details != null && details.trim().isNotEmpty)
+              'details': details.trim(),
+          }),
+        ),
+      );
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return;
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      String msg = 'Gagal mengirim laporan ulasan.';
+      try {
+        final err = jsonDecode(body);
+        if (err is Map && err['message'] != null) {
+          msg = err['message'].toString();
+        }
+      } catch (_) {}
+      throw Exception(msg);
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<List<ReviewReport>> fetchReviewReports() async {
+    final uri = Uri.parse('$_baseUrl/reviews/reports');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 6);
+    try {
+      final request = _attachAuth(await client.getUrl(uri));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final List<dynamic> list = jsonDecode(body);
+        return list
+            .map((e) => ReviewReport.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+      return [];
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<void> dismissReviewReport(int reportId) async {
+    final uri = Uri.parse('$_baseUrl/reviews/reports/$reportId/dismiss');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 6);
+    try {
+      final request = _attachAuth(await client.patchUrl(uri));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return;
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      throw Exception('Gagal mengabaikan laporan ulasan.');
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<void> deleteReview(int reviewId) async {
+    final uri = Uri.parse('$_baseUrl/reviews/$reviewId');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 6);
+    try {
+      final request = _attachAuth(await client.deleteUrl(uri));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return;
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      throw Exception('Gagal menghapus ulasan.');
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<UserProfile?> fetchMe() async {
+    final uri = Uri.parse('$_baseUrl/auth/me');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 6);
+    try {
+      final request = _attachAuth(await client.getUrl(uri));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return UserProfile.fromJson(jsonDecode(body) as Map<String, dynamic>);
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      return null;
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<void> deleteMyAccount() async {
+    final uri = Uri.parse('$_baseUrl/auth/users/me');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 6);
+    try {
+      final request = _attachAuth(await client.deleteUrl(uri));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return;
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      throw Exception('Gagal menghapus akun.');
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<UserProfile> setUserBanStatus({
+    required int userId,
+    required bool isBanned,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/auth/users/$userId/ban');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 6);
+    try {
+      final request = _attachAuth(await client.patchUrl(uri));
+      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
+      request.add(utf8.encode(jsonEncode({'isBanned': isBanned})));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return UserProfile.fromJson(jsonDecode(body) as Map<String, dynamic>);
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      throw Exception('Gagal memperbarui status blokir pengguna.');
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<Review> replyToReview({
+    required int reviewId,
+    required String reply,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/reviews/$reviewId/reply');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 6);
+    try {
+      final request = _attachAuth(await client.patchUrl(uri));
+      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
+      request.add(utf8.encode(jsonEncode({'reply': reply})));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return Review.fromJson(jsonDecode(body) as Map<String, dynamic>);
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      throw Exception('Gagal mengirim balasan ulasan.');
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<({bool liked, int likeCount})> togglePostLike(int postId) async {
+    final uri = Uri.parse('$_baseUrl/posts/$postId/like');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 6);
+    try {
+      final request = _attachAuth(await client.postUrl(uri));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final decoded = jsonDecode(body) as Map<String, dynamic>;
+        return (
+          liked: decoded['liked'] == true,
+          likeCount: decoded['likeCount'] is int
+              ? decoded['likeCount'] as int
+              : int.tryParse('${decoded['likeCount']}') ?? 0,
+        );
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      throw Exception('Gagal memperbarui suka.');
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<List<OwnerPostComment>> fetchPostComments(int postId) async {
+    final uri = Uri.parse('$_baseUrl/posts/$postId/comments');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 6);
+    try {
+      final request = _attachAuth(await client.getUrl(uri));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final List<dynamic> list = jsonDecode(body);
+        return list
+            .map((e) => OwnerPostComment.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+      throw Exception('Gagal memuat komentar.');
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<OwnerPostComment> createPostComment({
+    required int postId,
+    required String content,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/posts/$postId/comments');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 6);
+    try {
+      final request = _attachAuth(await client.postUrl(uri));
+      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
+      request.add(utf8.encode(jsonEncode({'content': content})));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return OwnerPostComment.fromJson(
+          jsonDecode(body) as Map<String, dynamic>,
+        );
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      throw Exception('Gagal mengirim komentar.');
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<void> deletePostComment({
+    required int postId,
+    required int commentId,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/posts/$postId/comments/$commentId');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 6);
+    try {
+      final request = _attachAuth(await client.deleteUrl(uri));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return;
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      throw Exception('Gagal menghapus komentar.');
     } finally {
       client.close();
     }

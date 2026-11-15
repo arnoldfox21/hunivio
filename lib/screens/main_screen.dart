@@ -1,28 +1,24 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/kost.dart';
 import '../models/booking.dart';
 import '../models/user_profile.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import '../services/notification_service.dart';
-import '../services/mapbox_service.dart';
 import '../utils/formatters.dart';
 import '../widgets/animated_vectors.dart';
 import '../widgets/app_user_guide_overlay.dart';
 import '../widgets/kost_card.dart';
-import '../widgets/location_autocomplete_field.dart';
 import '../widgets/kost_map_search_view.dart';
-import '../widgets/facility_checkbox_group.dart';
+import 'add_property_wizard_screen.dart';
 import 'auth_profile_tab.dart';
 import 'chat_inbox_screen.dart';
+import 'compare_kosts_screen.dart';
 import 'kost_chat_screen.dart';
 import 'kost_detail_screen.dart';
 import 'kost_group_chat_screen.dart';
-import 'kost_location_picker_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -31,11 +27,12 @@ class MainScreen extends StatefulWidget {
   State<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> {
+class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   int _selectedTabIndex = 0;
 
   // Filters
   final TextEditingController _searchCtrl = TextEditingController();
+  final TextEditingController _favSearchCtrl = TextEditingController();
   final ScrollController _exploreScrollCtrl = ScrollController();
   final GlobalKey _guideSearchKey = GlobalKey();
   final GlobalKey _guideFilterKey = GlobalKey();
@@ -46,7 +43,9 @@ class _MainScreenState extends State<MainScreen> {
   final GlobalKey _guideNavSewaKey = GlobalKey();
   Timer? _searchDebounce;
   Timer? _userGuideTimer;
-  String _selectedCategory = 'SEMUA'; // 'SEMUA' | 'KOST' | 'APARTEMEN' | 'KONTRAKAN'
+  String _stayDurationMode = 'LONG_TERM'; // 'LONG_TERM' | 'HUNIAN_HARIAN'
+  String _selectedCategory = 'LONG_TERM'; // 'LONG_TERM' | 'KOST' | 'APARTEMEN' | 'KONTRAKAN' | 'HUNIAN_HARIAN'
+  String _selectedDailySubType = 'Semua'; // 'Semua' | 'Villa' | 'Homestay'
   String _selectedCity = 'Semua Kota';
   String _selectedType = 'Semua';
   String? _selectedFacility;
@@ -61,6 +60,10 @@ class _MainScreenState extends State<MainScreen> {
   List<Kost> _mapKosts = [];
   List<Kost> _favoriteKosts = [];
   List<Booking> _bookings = [];
+  Set<int> _seenFavoriteIds = {};
+  Set<String> _seenBookingKeys = {};
+  bool _seenFavoritesLoaded = false;
+  bool _seenBookingsLoaded = false;
   bool _loadingKosts = true;
   bool _loadingMore = false;
   bool _hasMore = true;
@@ -72,13 +75,23 @@ class _MainScreenState extends State<MainScreen> {
   List<String> _cities = ['Semua Kota'];
   List<String> _kostTypes = ['Semua'];
   List<String> _facilityChips = [];
+  List<String> _searchHistory = [];
+  static const String _searchHistoryPrefsKey = 'search_history_list';
+  List<Kost> _recentlyViewedKosts = [];
+  static const String _recentKostIdsPrefsKey = 'recently_viewed_kost_ids';
+  bool _compareMode = false;
+  final Set<int> _compareIds = {};
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _exploreScrollCtrl.addListener(_onExploreScroll);
     AuthService.currentUserNotifier.addListener(_onAuthStateChanged);
     _loadDynamicFilters();
+    _loadSearchHistory();
+    _loadRecentlyViewed();
+    _loadSeenFavorites();
     _loadFavorites();
     _loadKosts();
     _loadBookings();
@@ -140,26 +153,39 @@ class _MainScreenState extends State<MainScreen> {
       ),
       UserGuideStep(
         targetKey: _guideNavSewaKey,
-        icon: Icons.receipt_long_rounded,
-        title: 'Menu Sewa Saya',
+        icon: Icons.event_available_rounded,
+        title: 'Menu Jadwal Survei',
         description:
-            'Pantau status pengajuan sewa yang Anda kirim dan riwayat persetujuan dari pemilik.',
+            'Pantau jadwal survei properti yang Anda ajukan dan konfirmasi dari pemilik.',
         borderRadius: 16,
       ),
     ]);
   }
 
   void _onAuthStateChanged() {
-    if (mounted) _loadBookings();
+    if (mounted) {
+      _loadBookings();
+      _loadFavorites();
+      _loadKosts();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      AuthService.verifyActiveSession();
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     AuthService.currentUserNotifier.removeListener(_onAuthStateChanged);
     _searchDebounce?.cancel();
     _userGuideTimer?.cancel();
     _exploreScrollCtrl.dispose();
     _searchCtrl.dispose();
+    _favSearchCtrl.dispose();
     super.dispose();
   }
 
@@ -171,9 +197,44 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  Future<void> _loadSearchHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getStringList(_searchHistoryPrefsKey) ?? const [];
+    if (!mounted) return;
+    setState(() => _searchHistory = saved.take(10).toList());
+  }
+
+  Future<void> _saveSearchHistory(String rawQuery) async {
+    final q = rawQuery.trim();
+    if (q.length < 2) return;
+    final next = [
+      q,
+      ..._searchHistory.where((e) => e.toLowerCase() != q.toLowerCase()),
+    ].take(10).toList();
+    setState(() => _searchHistory = next);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_searchHistoryPrefsKey, next);
+  }
+
+  Future<void> _removeSearchHistoryItem(String query) async {
+    final next = _searchHistory.where((e) => e != query).toList();
+    setState(() => _searchHistory = next);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_searchHistoryPrefsKey, next);
+  }
+
+  Future<void> _clearSearchHistory() async {
+    setState(() => _searchHistory = []);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_searchHistoryPrefsKey);
+  }
+
   void _onSearchChanged(String _) {
     _searchDebounce?.cancel();
-    _searchDebounce = Timer(const Duration(milliseconds: 350), () {
+    _searchDebounce = Timer(const Duration(milliseconds: 450), () {
+      if (_searchCtrl.text.trim().isNotEmpty) {
+        _saveSearchHistory(_searchCtrl.text);
+      }
       _loadKosts();
     });
   }
@@ -198,6 +259,73 @@ class _MainScreenState extends State<MainScreen> {
     } catch (_) {}
   }
 
+  static const String _seenFavoritesPrefsKey = 'seen_favorite_ids';
+  static String _seenBookingsPrefsKey(int userId) => 'seen_bookings_$userId';
+  static String _bookingSeenKey(Booking b) =>
+      '${b.id}:${b.status}';
+
+  int get _unseenFavoriteCount => _seenFavoritesLoaded
+      ? _favoriteKosts.where((k) => !_seenFavoriteIds.contains(k.id)).length
+      : 0;
+
+  int get _unseenBookingCount => _seenBookingsLoaded
+      ? _bookings
+          .where((b) => !_seenBookingKeys.contains(_bookingSeenKey(b)))
+          .length
+      : 0;
+
+  Future<void> _loadSeenFavorites() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getStringList(_seenFavoritesPrefsKey) ?? const [];
+    final ids = raw.map(int.tryParse).whereType<int>().toSet();
+    if (!mounted) return;
+    setState(() {
+      _seenFavoriteIds = ids;
+      _seenFavoritesLoaded = true;
+      if (_selectedTabIndex == 1) {
+        _seenFavoriteIds.addAll(_favoriteKosts.map((k) => k.id));
+      }
+    });
+    if (_selectedTabIndex == 1 && _favoriteKosts.isNotEmpty) {
+      await _persistSeenFavorites();
+    }
+  }
+
+  Future<void> _persistSeenFavorites() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      _seenFavoritesPrefsKey,
+      _seenFavoriteIds.map((id) => id.toString()).toList(),
+    );
+  }
+
+  void _markFavoritesSeen() {
+    if (_favoriteKosts.isEmpty) return;
+    final currentIds = _favoriteKosts.map((k) => k.id).toSet();
+    if (_seenFavoriteIds.containsAll(currentIds)) return;
+    setState(() {
+      _seenFavoriteIds = {..._seenFavoriteIds, ...currentIds};
+    });
+    _persistSeenFavorites();
+  }
+
+  Future<void> _persistSeenBookings(int userId, Set<String> keys) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_seenBookingsPrefsKey(userId), keys.toList());
+  }
+
+  void _markBookingsSeen() {
+    final user = AuthService.currentUser;
+    if (user == null || _bookings.isEmpty) return;
+    final currentKeys = _bookings.map(_bookingSeenKey).toSet();
+    if (_seenBookingKeys.containsAll(currentKeys)) return;
+    setState(() {
+      _seenBookingKeys = currentKeys;
+      _seenBookingsLoaded = true;
+    });
+    _persistSeenBookings(user.id, currentKeys);
+  }
+
   Future<void> _loadFavorites() async {
     try {
       final favRes = await ApiService.fetchKostsPaginated(
@@ -208,7 +336,16 @@ class _MainScreenState extends State<MainScreen> {
       if (!mounted) return;
       setState(() {
         _favoriteKosts = favRes.data;
+        if (_selectedTabIndex == 1) {
+          _seenFavoriteIds = {
+            ..._seenFavoriteIds,
+            ...favRes.data.map((k) => k.id),
+          };
+        }
       });
+      if (_selectedTabIndex == 1 && favRes.data.isNotEmpty) {
+        await _persistSeenFavorites();
+      }
     } catch (_) {}
   }
 
@@ -223,7 +360,9 @@ class _MainScreenState extends State<MainScreen> {
       final result = await ApiService.fetchKostsPaginated(
         search: _searchCtrl.text,
         propertyCategory: _selectedCategory,
-        type: _selectedType,
+        unitType:
+            _stayDurationMode == 'HUNIAN_HARIAN' ? _selectedDailySubType : null,
+        type: _stayDurationMode == 'HUNIAN_HARIAN' ? null : _selectedType,
         city: _selectedCity,
         facility: _selectedFacility,
         minPrice: _minPrice,
@@ -262,7 +401,9 @@ class _MainScreenState extends State<MainScreen> {
       final result = await ApiService.fetchKostsPaginated(
         search: _searchCtrl.text,
         propertyCategory: _selectedCategory,
-        type: _selectedType,
+        unitType:
+            _stayDurationMode == 'HUNIAN_HARIAN' ? _selectedDailySubType : null,
+        type: _stayDurationMode == 'HUNIAN_HARIAN' ? null : _selectedType,
         city: _selectedCity,
         facility: _selectedFacility,
         minPrice: _minPrice,
@@ -289,7 +430,9 @@ class _MainScreenState extends State<MainScreen> {
     try {
       final pts = await ApiService.fetchMapPoints(
         propertyCategory: _selectedCategory,
-        type: _selectedType,
+        unitType:
+            _stayDurationMode == 'HUNIAN_HARIAN' ? _selectedDailySubType : null,
+        type: _stayDurationMode == 'HUNIAN_HARIAN' ? null : _selectedType,
         city: _selectedCity,
       );
       if (mounted) {
@@ -304,6 +447,8 @@ class _MainScreenState extends State<MainScreen> {
       if (mounted) {
         setState(() {
           _bookings = [];
+          _seenBookingKeys = {};
+          _seenBookingsLoaded = false;
           _loadingBookings = false;
         });
       }
@@ -311,12 +456,27 @@ class _MainScreenState extends State<MainScreen> {
     }
     setState(() => _loadingBookings = true);
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedKeys =
+          (prefs.getStringList(_seenBookingsPrefsKey(user.id)) ?? const [])
+              .toSet();
       final list = await ApiService.fetchBookings(userId: user.id);
-      if (mounted) {
-        setState(() {
-          _bookings = list;
-          _loadingBookings = false;
-        });
+      if (!mounted) return;
+      final currentKeys = list.map(_bookingSeenKey).toSet();
+      final nextSeen = _selectedTabIndex == 2
+          ? currentKeys
+          : savedKeys.intersection(currentKeys);
+      setState(() {
+        _bookings = list;
+        _seenBookingKeys = nextSeen;
+        _seenBookingsLoaded = true;
+        _loadingBookings = false;
+      });
+      if (_selectedTabIndex == 2 || nextSeen.length != savedKeys.length) {
+        await prefs.setStringList(
+          _seenBookingsPrefsKey(user.id),
+          nextSeen.toList(),
+        );
       }
     } catch (_) {
       if (mounted) {
@@ -325,7 +485,46 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  Future<void> _loadRecentlyViewed() async {
+    final prefs = await SharedPreferences.getInstance();
+    final rawIds = prefs.getStringList(_recentKostIdsPrefsKey) ?? const [];
+    final ids = rawIds.map(int.tryParse).whereType<int>().toList();
+    if (ids.isEmpty) return;
+    final loaded = <Kost>[];
+    for (final id in ids.take(8)) {
+      try {
+        final k = await ApiService.fetchKostById(id);
+        if (k != null) loaded.add(k);
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    setState(() => _recentlyViewedKosts = loaded);
+  }
+
+  Future<void> _recordRecentlyViewed(Kost kost) async {
+    final next = [
+      kost,
+      ..._recentlyViewedKosts.where((k) => k.id != kost.id),
+    ].take(8).toList();
+    if (mounted) {
+      setState(() => _recentlyViewedKosts = next);
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      _recentKostIdsPrefsKey,
+      next.map((k) => k.id.toString()).toList(),
+    );
+  }
+
   Future<void> _toggleFavorite(int id) async {
+    if (AuthService.currentUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Silakan masuk terlebih dahulu untuk menyimpan favorit.'),
+        ),
+      );
+      return;
+    }
     final wasFav = _isFavorite(id);
     final nextFav = !wasFav;
     Kost? targetKost;
@@ -351,8 +550,12 @@ class _MainScreenState extends State<MainScreen> {
             ..._favoriteKosts,
           ];
         }
+        if (_selectedTabIndex == 1) {
+          _seenFavoriteIds.add(id);
+        }
       } else {
         _favoriteKosts.removeWhere((k) => k.id == id);
+        _seenFavoriteIds.remove(id);
       }
     });
 
@@ -368,10 +571,15 @@ class _MainScreenState extends State<MainScreen> {
           } else {
             _favoriteKosts = [updated, ..._favoriteKosts];
           }
+          if (_selectedTabIndex == 1) {
+            _seenFavoriteIds.add(id);
+          }
         } else {
           _favoriteKosts.removeWhere((k) => k.id == id);
+          _seenFavoriteIds.remove(id);
         }
       });
+      await _persistSeenFavorites();
     } catch (e) {
       if (!mounted) return;
       // Revert optimistic update on failure
@@ -384,8 +592,12 @@ class _MainScreenState extends State<MainScreen> {
             targetKost.copyWith(isFavorite: true),
             ..._favoriteKosts,
           ];
+          if (_selectedTabIndex == 1) {
+            _seenFavoriteIds.add(id);
+          }
         } else if (!wasFav) {
           _favoriteKosts.removeWhere((k) => k.id == id);
+          _seenFavoriteIds.remove(id);
         }
       });
       ScaffoldMessenger.of(context).showSnackBar(
@@ -404,6 +616,7 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void _openKostDetail(Kost kost) {
+    _recordRecentlyViewed(kost);
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => KostDetailScreen(
@@ -419,7 +632,7 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  void _showCreateKostSheet() {
+  Future<void> _showCreateKostSheet() async {
     final currentUser = AuthService.currentUser;
     if (currentUser == null || !currentUser.canManageKost) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -432,804 +645,14 @@ class _MainScreenState extends State<MainScreen> {
       return;
     }
 
-    final formKey = GlobalKey<FormState>();
-    final nameCtrl = TextEditingController();
-    final cityCtrl = TextEditingController();
-    final districtCtrl = TextEditingController();
-    final addressCtrl = TextEditingController();
-    final landmarkCtrl = TextEditingController();
-    final priceCtrl = TextEditingController();
-    final roomsCtrl = TextEditingController(text: '5');
-    final roomSizeCtrl = TextEditingController(text: '3 x 4 m');
-    final ownerNameCtrl = TextEditingController(text: currentUser.name);
-    final ownerPhoneCtrl = TextEditingController(text: currentUser.phone);
-    final descCtrl = TextEditingController();
-    final imageCtrl = TextEditingController();
-    final rulesCtrl = TextEditingController();
-    List<String> masterRoomFacilities =
-        List.from(ApiService.defaultRoomFacilities);
-    List<String> masterPublicFacilities =
-        List.from(ApiService.defaultPublicFacilities);
-    final Set<String> selectedRoomFacilities = {};
-    final Set<String> selectedPublicFacilities = {};
-    bool loadedMasterFacilities = false;
-    final imagePicker = ImagePicker();
-    final List<XFile> pickedImages = [];
-    final List<String> imageUrls = [];
-    String selectedType = 'Campur';
-    bool electricityIncluded = false;
-    bool isSinggahsini = true;
-    bool submitting = false;
-    LatLng? pickedLocation;
-    bool loadingCurrentGps = false;
-    bool loadingAddress = false;
-
-    Future<void> applyPinLocation(
-      LatLng point,
-      void Function(void Function()) setModalState,
-      BuildContext modalContext,
-    ) async {
-      if (!mounted || !modalContext.mounted) return;
-      setModalState(() {
-        pickedLocation = point;
-        loadingAddress = true;
-      });
-      try {
-        final geo = await LocationHelper.reverseGeocode(point);
-        if (!mounted || !modalContext.mounted) return;
-        setModalState(() {
-          loadingAddress = false;
-          if (geo != null) {
-            if (geo.city.isNotEmpty) cityCtrl.text = geo.city;
-            if (geo.district.isNotEmpty) districtCtrl.text = geo.district;
-            if (geo.address.isNotEmpty) addressCtrl.text = geo.address;
-          }
-        });
-      } catch (_) {
-        if (mounted && modalContext.mounted) {
-          setModalState(() => loadingAddress = false);
-        }
-      }
-    }
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setModalState) {
-          if (!loadedMasterFacilities) {
-            loadedMasterFacilities = true;
-            ApiService.fetchMasterFacilities().then((data) {
-              if (!mounted) return;
-              setModalState(() {
-                masterRoomFacilities = data['room'] ?? masterRoomFacilities;
-                masterPublicFacilities =
-                    data['public'] ?? masterPublicFacilities;
-              });
-            });
-          }
-          return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(ctx).viewInsets.bottom,
-            left: 20,
-            right: 20,
-            top: 18,
-          ),
-          child: Form(
-            key: formKey,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          'Tambah Properti Baru',
-                          style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: () => Navigator.of(ctx).pop(),
-                        icon: const Icon(Icons.close),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    controller: nameCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Nama Properti',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: (v) =>
-                        v == null || v.trim().isEmpty ? 'Wajib diisi' : null,
-                  ),
-                  const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppColors.lightGreenBg.withOpacity(0.45),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: AppColors.primaryGreen.withOpacity(0.35),
-                      ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.pin_drop_rounded,
-                              size: 18,
-                              color: AppColors.primaryGreen,
-                            ),
-                            const SizedBox(width: 6),
-                            const Expanded(
-                              child: Text(
-                                'Pin Lokasi Properti di Peta',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 13.5,
-                                ),
-                              ),
-                            ),
-                            if (pickedLocation != null)
-                              GestureDetector(
-                                onTap: () => setModalState(
-                                  () => pickedLocation = null,
-                                ),
-                                child: Text(
-                                  'Hapus',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.red.shade700,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          loadingAddress
-                              ? 'Mengambil kota, kecamatan, dan alamat otomatis...'
-                              : pickedLocation != null
-                                  ? 'Koordinat terpilih: ${pickedLocation!.latitude.toStringAsFixed(6)}, ${pickedLocation!.longitude.toStringAsFixed(6)}'
-                                  : 'Tandai di peta untuk mengisi kota, kecamatan, dan alamat otomatis.',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: pickedLocation != null
-                                ? AppColors.darkGreen
-                                : Colors.grey.shade700,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () async {
-                                  final result =
-                                      await Navigator.of(ctx).push<LatLng>(
-                                    MaterialPageRoute(
-                                      builder: (_) => KostLocationPickerScreen(
-                                        initialLocation: pickedLocation,
-                                      ),
-                                    ),
-                                  );
-                                  if (result != null && ctx.mounted) {
-                                    await applyPinLocation(
-                                      result,
-                                      setModalState,
-                                      ctx,
-                                    );
-                                  }
-                                },
-                                icon: const Icon(
-                                  Icons.map_outlined,
-                                  size: 17,
-                                ),
-                                label: Text(
-                                  pickedLocation != null
-                                      ? 'Ubah Pin'
-                                      : 'Pilih di Peta',
-                                ),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: AppColors.primaryGreen,
-                                  side: const BorderSide(
-                                    color: AppColors.primaryGreen,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                onPressed: loadingCurrentGps
-                                    ? null
-                                    : () async {
-                                        setModalState(
-                                          () => loadingCurrentGps = true,
-                                        );
-                                        final res = await LocationHelper
-                                            .getCurrentLocation();
-                                        if (!mounted || !ctx.mounted) return;
-                                        setModalState(() {
-                                          loadingCurrentGps = false;
-                                        });
-                                        if (res.isUserLocation) {
-                                          await applyPinLocation(
-                                            res.location,
-                                            setModalState,
-                                            ctx,
-                                          );
-                                        }
-                                        if (res.message != null && ctx.mounted) {
-                                          ScaffoldMessenger.of(ctx)
-                                              .showSnackBar(
-                                            SnackBar(
-                                              content: Text(res.message!),
-                                            ),
-                                          );
-                                        }
-                                      },
-                                icon: loadingCurrentGps
-                                    ? const SizedBox(
-                                        width: 14,
-                                        height: 14,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      )
-                                    : const Icon(
-                                        Icons.my_location_rounded,
-                                        size: 17,
-                                      ),
-                                label: const Text('Lokasi Saya'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: AppColors.primaryGreen,
-                                  foregroundColor: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          value: selectedType,
-                          decoration: const InputDecoration(
-                            labelText: 'Tipe Hunian',
-                            border: OutlineInputBorder(),
-                          ),
-                          items: const [
-                            DropdownMenuItem(
-                              value: 'Putri',
-                              child: Text('Putri'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'Putra',
-                              child: Text('Putra'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'Campur',
-                              child: Text('Campur'),
-                            ),
-                          ],
-                          onChanged: (v) {
-                            if (v != null) {
-                              setModalState(() => selectedType = v);
-                            }
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: LocationAutocompleteField(
-                          controller: cityCtrl,
-                          type: LocationAutocompleteType.city,
-                          labelText: 'Kota / Kabupaten',
-                          hintText: 'Misal: Kota Malang',
-                          validator: (v) => v == null || v.trim().isEmpty
-                              ? 'Wajib diisi'
-                              : null,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: LocationAutocompleteField(
-                          controller: districtCtrl,
-                          cityController: cityCtrl,
-                          type: LocationAutocompleteType.district,
-                          labelText: 'Kecamatan / Area',
-                          hintText: 'Misal: Lowokwaru',
-                          validator: (v) => v == null || v.trim().isEmpty
-                              ? 'Wajib diisi'
-                              : null,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: TextFormField(
-                          controller: priceCtrl,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            labelText: 'Harga / Bulan (Rp)',
-                            hintText: '1500000',
-                            border: OutlineInputBorder(),
-                          ),
-                          validator: (v) =>
-                              (v == null || int.tryParse(v.trim()) == null)
-                                  ? 'Masukkan angka'
-                                  : null,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    controller: addressCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Alamat Lengkap',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: (v) =>
-                        v == null || v.trim().isEmpty ? 'Wajib diisi' : null,
-                  ),
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    controller: landmarkCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Patokan / Kampus Terdekat',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: roomsCtrl,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            labelText: 'Sisa Kamar',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: TextFormField(
-                          controller: roomSizeCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Ukuran Kamar',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: ownerNameCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Nama Pemilik',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: TextFormField(
-                          controller: ownerPhoneCtrl,
-                          keyboardType: TextInputType.phone,
-                          decoration: const InputDecoration(
-                            labelText: 'No. WA Pemilik',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  FacilityCheckboxGroup(
-                    title: 'Fasilitas Kamar',
-                    options: masterRoomFacilities,
-                    selected: selectedRoomFacilities,
-                    onToggle: (item) {
-                      setModalState(() {
-                        if (!selectedRoomFacilities.remove(item)) {
-                          selectedRoomFacilities.add(item);
-                        }
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  FacilityCheckboxGroup(
-                    title: 'Fasilitas Umum',
-                    options: masterPublicFacilities,
-                    selected: selectedPublicFacilities,
-                    onToggle: (item) {
-                      setModalState(() {
-                        if (!selectedPublicFacilities.remove(item)) {
-                          selectedPublicFacilities.add(item);
-                        }
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    controller: rulesCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Peraturan Properti (pisahkan dengan koma)',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Foto Kost',
-                    style: TextStyle(
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF111827),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: submitting
-                              ? null
-                              : () async {
-                                  final files =
-                                      await imagePicker.pickMultiImage(
-                                    imageQuality: 80,
-                                    maxWidth: 1280,
-                                  );
-                                  if (files.isNotEmpty) {
-                                    setModalState(() {
-                                      pickedImages.addAll(files);
-                                    });
-                                  }
-                                },
-                          icon: const Icon(Icons.photo_library_outlined),
-                          label: const Text('Galeri'),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: submitting
-                              ? null
-                              : () async {
-                                  final file = await imagePicker.pickImage(
-                                    source: ImageSource.camera,
-                                    imageQuality: 80,
-                                    maxWidth: 1280,
-                                  );
-                                  if (file != null) {
-                                    setModalState(() {
-                                      pickedImages.add(file);
-                                    });
-                                  }
-                                },
-                          icon: const Icon(Icons.camera_alt_outlined),
-                          label: const Text('Kamera'),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: imageCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Atau tambah URL Foto Kost',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton.filled(
-                        style: IconButton.styleFrom(
-                          backgroundColor: AppColors.primaryGreen,
-                          foregroundColor: Colors.white,
-                        ),
-                        tooltip: 'Tambah URL Foto',
-                        onPressed: submitting
-                            ? null
-                            : () {
-                                final url = imageCtrl.text.trim();
-                                if (url.isNotEmpty &&
-                                    !imageUrls.contains(url)) {
-                                  setModalState(() {
-                                    imageUrls.add(url);
-                                    imageCtrl.clear();
-                                  });
-                                }
-                              },
-                        icon: const Icon(Icons.add_rounded),
-                      ),
-                    ],
-                  ),
-                  if (pickedImages.isNotEmpty || imageUrls.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      height: 86,
-                      child: ListView(
-                        scrollDirection: Axis.horizontal,
-                        children: [
-                          ...pickedImages.asMap().entries.map((entry) {
-                            final idx = entry.key;
-                            final file = entry.value;
-                            return Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: Stack(
-                                children: [
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: Image.file(
-                                      File(file.path),
-                                      width: 86,
-                                      height: 86,
-                                      fit: BoxFit.cover,
-                                    ),
-                                  ),
-                                  Positioned(
-                                    top: 4,
-                                    right: 4,
-                                    child: GestureDetector(
-                                      onTap: submitting
-                                          ? null
-                                          : () => setModalState(
-                                              () => pickedImages.removeAt(idx),
-                                            ),
-                                      child: Container(
-                                        padding: const EdgeInsets.all(2),
-                                        decoration: const BoxDecoration(
-                                          color: Colors.black54,
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: const Icon(
-                                          Icons.close,
-                                          size: 14,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          }),
-                          ...imageUrls.asMap().entries.map((entry) {
-                            final idx = entry.key;
-                            final url = entry.value;
-                            return Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: Stack(
-                                children: [
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: Image.network(
-                                      url,
-                                      width: 86,
-                                      height: 86,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) => Container(
-                                        width: 86,
-                                        height: 86,
-                                        color: Colors.grey.shade200,
-                                        child: const Icon(
-                                          Icons.broken_image_outlined,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  Positioned(
-                                    top: 4,
-                                    right: 4,
-                                    child: GestureDetector(
-                                      onTap: submitting
-                                          ? null
-                                          : () => setModalState(
-                                              () => imageUrls.removeAt(idx),
-                                            ),
-                                      child: Container(
-                                        padding: const EdgeInsets.all(2),
-                                        decoration: const BoxDecoration(
-                                          color: Colors.black54,
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: const Icon(
-                                          Icons.close,
-                                          size: 14,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          }),
-                        ],
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 10),
-                  TextFormField(
-                    controller: descCtrl,
-                    maxLines: 2,
-                    decoration: const InputDecoration(
-                      labelText: 'Deskripsi Kost',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: (v) =>
-                        v == null || v.trim().isEmpty ? 'Wajib diisi' : null,
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Termasuk Listrik'),
-                    value: electricityIncluded,
-                    onChanged: (v) =>
-                        setModalState(() => electricityIncluded = v),
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Badge HuniVio Pilihan'),
-                    value: isSinggahsini,
-                    onChanged: (v) => setModalState(() => isSinggahsini = v),
-                  ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 46,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primaryGreen,
-                        foregroundColor: Colors.white,
-                      ),
-                      onPressed: submitting
-                          ? null
-                          : () async {
-                              if (!formKey.currentState!.validate()) return;
-                              setModalState(() => submitting = true);
-                              try {
-                                final navigator = Navigator.of(ctx);
-                                final messenger = ScaffoldMessenger.of(context);
-                                final facilities =
-                                    selectedRoomFacilities.toList();
-                                final publicFacilities =
-                                    selectedPublicFacilities.toList();
-                                final rules = rulesCtrl.text
-                                    .split(',')
-                                    .map((e) => e.trim())
-                                    .where((e) => e.isNotEmpty)
-                                    .toList();
-                                final rooms =
-                                    int.tryParse(roomsCtrl.text.trim()) ?? 1;
-                                final List<String> finalImages = [
-                                  ...imageUrls,
-                                ];
-                                final typedUrl = imageCtrl.text.trim();
-                                if (typedUrl.isNotEmpty &&
-                                    !finalImages.contains(typedUrl)) {
-                                  finalImages.add(typedUrl);
-                                }
-                                for (final picked in pickedImages) {
-                                  final uploadedUrl =
-                                      await ApiService.uploadKostImage(
-                                    File(picked.path),
-                                  );
-                                  finalImages.add(uploadedUrl);
-                                }
-                                await ApiService.createKost({
-                                  'name': nameCtrl.text.trim(),
-                                  'type': selectedType,
-                                  'city': cityCtrl.text.trim(),
-                                  'district': districtCtrl.text.trim(),
-                                  'address': addressCtrl.text.trim(),
-                                  'nearbyLandmark': landmarkCtrl.text.trim(),
-                                  'description': descCtrl.text.trim(),
-                                  'pricePerMonth':
-                                      int.parse(priceCtrl.text.trim()),
-                                  'availableRooms': rooms,
-                                  'totalRooms': rooms,
-                                  'roomSize': roomSizeCtrl.text.trim(),
-                                  'electricityIncluded': electricityIncluded,
-                                  'isSinggahsini': isSinggahsini,
-                                  'isInstantBooking': true,
-                                  'roomFacilities': facilities,
-                                  'publicFacilities': publicFacilities,
-                                  'rules': rules,
-                                  'images': finalImages,
-                                  'ownerName': ownerNameCtrl.text.trim(),
-                                  'ownerPhone': ownerPhoneCtrl.text.trim(),
-                                  'ownerId': currentUser.id,
-                                  if (pickedLocation != null)
-                                    'latitude': pickedLocation!.latitude,
-                                  if (pickedLocation != null)
-                                    'longitude': pickedLocation!.longitude,
-                                });
-                                if (!mounted) return;
-                                navigator.pop();
-                                await _loadKosts();
-                                final autoApproved =
-                                    currentUser.canApproveProperties;
-                                messenger.showSnackBar(
-                                  SnackBar(
-                                    backgroundColor: autoApproved
-                                        ? AppColors.primaryGreen
-                                        : const Color(0xFFD97706),
-                                    content: Text(
-                                      autoApproved
-                                          ? 'Properti baru berhasil ditambahkan & langsung disetujui!'
-                                          : 'Properti berhasil diajukan! Menunggu persetujuan Administrator/Staff.',
-                                    ),
-                                  ),
-                                );
-                              } catch (e) {
-                                setModalState(() => submitting = false);
-                                if (!mounted) return;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    backgroundColor: Colors.red.shade700,
-                                    content: Text('Gagal menyimpan properti: $e'),
-                                  ),
-                                );
-                              }
-                            },
-                      child: submitting
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Text(
-                              'Simpan Kost',
-                              style: TextStyle(fontWeight: FontWeight.w700),
-                            ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                ],
-              ),
-            ),
-          ),
-        );
-        },
+    final created = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => AddPropertyWizardScreen(currentUser: currentUser),
       ),
     );
+    if (created == true && mounted) {
+      await _loadKosts();
+    }
   }
 
   void _showApiEndpointDialog() {
@@ -1567,8 +990,14 @@ class _MainScreenState extends State<MainScreen> {
           selectedIndex: _selectedTabIndex,
           onDestinationSelected: (idx) {
             setState(() => _selectedTabIndex = idx);
-            if (idx == 1) _loadDynamicFilters();
-            if (idx == 2) _loadBookings();
+            if (idx == 1) {
+              _markFavoritesSeen();
+              _loadDynamicFilters();
+            }
+            if (idx == 2) {
+              _markBookingsSeen();
+              _loadBookings();
+            }
           },
           backgroundColor: Colors.white,
           surfaceTintColor: Colors.transparent,
@@ -1587,13 +1016,13 @@ class _MainScreenState extends State<MainScreen> {
           NavigationDestination(
             key: _guideNavFavKey,
             icon: Badge(
-              isLabelVisible: _favoriteKosts.isNotEmpty,
-              label: Text('${_favoriteKosts.length}'),
+              isLabelVisible: _unseenFavoriteCount > 0,
+              label: Text('$_unseenFavoriteCount'),
               child: const Icon(Icons.favorite_border_rounded),
             ),
             selectedIcon: Badge(
-              isLabelVisible: _favoriteKosts.isNotEmpty,
-              label: Text('${_favoriteKosts.length}'),
+              isLabelVisible: _unseenFavoriteCount > 0,
+              label: Text('$_unseenFavoriteCount'),
               child: const Icon(
                 Icons.favorite_rounded,
                 color: AppColors.primaryGreen,
@@ -1604,19 +1033,19 @@ class _MainScreenState extends State<MainScreen> {
           NavigationDestination(
             key: _guideNavSewaKey,
             icon: Badge(
-              isLabelVisible: _bookings.isNotEmpty,
-              label: Text('${_bookings.length}'),
-              child: const Icon(Icons.receipt_long_outlined),
+              isLabelVisible: _unseenBookingCount > 0,
+              label: Text('$_unseenBookingCount'),
+              child: const Icon(Icons.event_available_outlined),
             ),
             selectedIcon: Badge(
-              isLabelVisible: _bookings.isNotEmpty,
-              label: Text('${_bookings.length}'),
+              isLabelVisible: _unseenBookingCount > 0,
+              label: Text('$_unseenBookingCount'),
               child: const Icon(
-                Icons.receipt_long_rounded,
+                Icons.event_available_rounded,
                 color: AppColors.primaryGreen,
               ),
             ),
-            label: 'Sewa Saya',
+            label: 'Survei',
           ),
           const NavigationDestination(
             icon: Icon(Icons.person_outline_rounded),
@@ -1633,9 +1062,14 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void _showAdvancedFilterSheet() {
+    final isDaily = _stayDurationMode == 'HUNIAN_HARIAN';
+    final double minSlider = isDaily ? 100000 : 500000;
+    final double maxSlider = isDaily ? 5000000 : 6000000;
+    final int divisions = isDaily ? 49 : 22;
+
     RangeValues priceRange = RangeValues(
-      (_minPrice ?? 500000).toDouble().clamp(500000, 6000000),
-      (_maxPrice ?? 6000000).toDouble().clamp(500000, 6000000),
+      (_minPrice ?? minSlider.round()).toDouble().clamp(minSlider, maxSlider),
+      (_maxPrice ?? maxSlider.round()).toDouble().clamp(minSlider, maxSlider),
     );
     bool onlyAvail = _onlyAvailable;
 
@@ -1671,7 +1105,7 @@ class _MainScreenState extends State<MainScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Rentang Harga / Bulan: ${formatRupiah(priceRange.start.round())} - ${formatRupiah(priceRange.end.round())}',
+                'Rentang Harga / ${isDaily ? 'Malam' : 'Bulan'}: ${formatRupiah(priceRange.start.round())} - ${formatRupiah(priceRange.end.round())}',
                 style: const TextStyle(
                   fontWeight: FontWeight.w700,
                   fontSize: 13.5,
@@ -1679,9 +1113,9 @@ class _MainScreenState extends State<MainScreen> {
               ),
               RangeSlider(
                 values: priceRange,
-                min: 500000,
-                max: 6000000,
-                divisions: 22,
+                min: minSlider,
+                max: maxSlider,
+                divisions: divisions,
                 activeColor: AppColors.primaryGreen,
                 onChanged: (v) => setModalState(() => priceRange = v),
               ),
@@ -1734,10 +1168,10 @@ class _MainScreenState extends State<MainScreen> {
                   ),
                   onPressed: () {
                     setState(() {
-                      _minPrice = priceRange.start.round() > 500000
+                      _minPrice = priceRange.start.round() > minSlider.round()
                           ? priceRange.start.round()
                           : null;
-                      _maxPrice = priceRange.end.round() < 6000000
+                      _maxPrice = priceRange.end.round() < maxSlider.round()
                           ? priceRange.end.round()
                           : null;
                       _onlyAvailable = onlyAvail;
@@ -1760,7 +1194,9 @@ class _MainScreenState extends State<MainScreen> {
 
   Widget _buildTopSearchFilterPanel() {
     final hasActiveFilter = _searchCtrl.text.trim().isNotEmpty ||
-        _selectedCategory != 'SEMUA' ||
+        (_stayDurationMode == 'LONG_TERM'
+            ? _selectedCategory != 'LONG_TERM'
+            : _selectedDailySubType != 'Semua') ||
         _selectedCity != 'Semua Kota' ||
         _selectedType != 'Semua' ||
         _selectedFacility != null ||
@@ -1793,7 +1229,10 @@ class _MainScreenState extends State<MainScreen> {
                   child: TextField(
                     controller: _searchCtrl,
                     onChanged: _onSearchChanged,
-                    onSubmitted: (_) => _loadKosts(),
+                    onSubmitted: (val) {
+                      _saveSearchHistory(val);
+                      _loadKosts();
+                    },
                     style: const TextStyle(
                       fontSize: 13.5,
                       fontWeight: FontWeight.w500,
@@ -1820,7 +1259,10 @@ class _MainScreenState extends State<MainScreen> {
                               icon: const Icon(Icons.close_rounded, size: 18),
                             )
                           : IconButton(
-                              onPressed: _loadKosts,
+                              onPressed: () {
+                                _saveSearchHistory(_searchCtrl.text);
+                                _loadKosts();
+                              },
                               icon: const Icon(
                                 Icons.arrow_forward_rounded,
                                 size: 18,
@@ -1917,55 +1359,309 @@ class _MainScreenState extends State<MainScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 10),
-
-          // Multi-Property Category Strip (Semua, Kost, Apartemen, Kontrakan)
-          SizedBox(
-            height: 36,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              children: const [
-                ('SEMUA', 'Semua Properti', Icons.apps_rounded),
-                ('KOST', 'Kost', Icons.bed_rounded),
-                ('APARTEMEN', 'Apartemen', Icons.apartment_rounded),
-                ('KONTRAKAN', 'Kontrakan', Icons.home_rounded),
-              ].map((item) {
-                final code = item.$1;
-                final label = item.$2;
-                final icon = item.$3;
-                final selected = _selectedCategory == code;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: ChoiceChip(
-                    avatar: Icon(
-                      icon,
-                      size: 16,
-                      color: selected ? Colors.white : AppColors.primaryGreen,
+          if (_searchHistory.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Icon(
+                  Icons.history_rounded,
+                  size: 14,
+                  color: AppColors.textSecondary,
+                ),
+                const SizedBox(width: 4),
+                const Text(
+                  'Pencarian Terakhir',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                const Spacer(),
+                InkWell(
+                  onTap: _clearSearchHistory,
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    child: Text(
+                      'Hapus Semua',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primaryGreen,
+                      ),
                     ),
-                    label: Text(label),
-                    selected: selected,
-                    showCheckmark: false,
-                    selectedColor: AppColors.primaryGreen,
-                    backgroundColor: AppColors.lightGreenBg.withOpacity(0.55),
-                    side: BorderSide(
-                      color: selected
-                          ? AppColors.primaryGreen
-                          : AppColors.primaryGreen.withOpacity(0.2),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            SizedBox(
+              height: 30,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: _searchHistory.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 6),
+                itemBuilder: (context, idx) {
+                  final term = _searchHistory[idx];
+                  return InputChip(
+                    label: Text(
+                      term,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                      ),
                     ),
-                    shape: const StadiumBorder(),
-                    labelStyle: TextStyle(
-                      color: selected ? Colors.white : AppColors.darkGreen,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 12.5,
+                    backgroundColor: const Color(0xFFF3F6F9),
+                    side: const BorderSide(color: Color(0xFFE5EAF0)),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    deleteIcon: const Icon(
+                      Icons.close_rounded,
+                      size: 14,
+                      color: AppColors.textSecondary,
                     ),
-                    onSelected: (_) {
-                      setState(() => _selectedCategory = code);
+                    onDeleted: () => _removeSearchHistoryItem(term),
+                    onPressed: () {
+                      _searchCtrl.text = term;
+                      _searchCtrl.selection = TextSelection.fromPosition(
+                        TextPosition(offset: term.length),
+                      );
+                      _saveSearchHistory(term);
                       _loadKosts();
                     },
-                  ),
-                );
-              }).toList(),
+                  );
+                },
+              ),
             ),
+          ],
+          const SizedBox(height: 10),
+
+          // 2-Mode Segmented Switch: Jangka Panjang vs Hunian Harian
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () {
+                      if (_stayDurationMode == 'LONG_TERM') return;
+                      setState(() {
+                        _stayDurationMode = 'LONG_TERM';
+                        _selectedCategory = 'LONG_TERM';
+                        _selectedDailySubType = 'Semua';
+                      });
+                      _loadKosts();
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      decoration: BoxDecoration(
+                        color: _stayDurationMode == 'LONG_TERM'
+                            ? Colors.white
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(9),
+                        boxShadow: _stayDurationMode == 'LONG_TERM'
+                            ? [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.06),
+                                  blurRadius: 4,
+                                  offset: const Offset(0, 1),
+                                ),
+                              ]
+                            : null,
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.calendar_month_rounded,
+                            size: 15,
+                            color: _stayDurationMode == 'LONG_TERM'
+                                ? AppColors.primaryGreen
+                                : AppColors.textSecondary,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Jangka Panjang',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: _stayDurationMode == 'LONG_TERM'
+                                  ? FontWeight.w800
+                                  : FontWeight.w600,
+                              color: _stayDurationMode == 'LONG_TERM'
+                                  ? AppColors.primaryGreen
+                                  : AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () {
+                      if (_stayDurationMode == 'HUNIAN_HARIAN') return;
+                      setState(() {
+                        _stayDurationMode = 'HUNIAN_HARIAN';
+                        _selectedCategory = 'HUNIAN_HARIAN';
+                        _selectedType = 'Semua';
+                      });
+                      _loadKosts();
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      decoration: BoxDecoration(
+                        color: _stayDurationMode == 'HUNIAN_HARIAN'
+                            ? Colors.white
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(9),
+                        boxShadow: _stayDurationMode == 'HUNIAN_HARIAN'
+                            ? [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.06),
+                                  blurRadius: 4,
+                                  offset: const Offset(0, 1),
+                                ),
+                              ]
+                            : null,
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.villa_rounded,
+                            size: 15,
+                            color: _stayDurationMode == 'HUNIAN_HARIAN'
+                                ? const Color(0xFF0369A1)
+                                : AppColors.textSecondary,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Hunian Harian',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: _stayDurationMode == 'HUNIAN_HARIAN'
+                                  ? FontWeight.w800
+                                  : FontWeight.w600,
+                              color: _stayDurationMode == 'HUNIAN_HARIAN'
+                                  ? const Color(0xFF0369A1)
+                                  : AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // Category / Sub-Type Strip
+          SizedBox(
+            height: 36,
+            child: _stayDurationMode == 'LONG_TERM'
+                ? ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: const [
+                      ('LONG_TERM', 'Semua', Icons.apps_rounded),
+                      ('KOST', 'Kost', Icons.bed_rounded),
+                      ('APARTEMEN', 'Apartemen', Icons.apartment_rounded),
+                      ('KONTRAKAN', 'Kontrakan', Icons.home_rounded),
+                    ].map((item) {
+                      final code = item.$1;
+                      final label = item.$2;
+                      final icon = item.$3;
+                      final selected = _selectedCategory == code;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          avatar: Icon(
+                            icon,
+                            size: 16,
+                            color:
+                                selected ? Colors.white : AppColors.primaryGreen,
+                          ),
+                          label: Text(label),
+                          selected: selected,
+                          showCheckmark: false,
+                          selectedColor: AppColors.primaryGreen,
+                          backgroundColor:
+                              AppColors.lightGreenBg.withOpacity(0.55),
+                          side: BorderSide(
+                            color: selected
+                                ? AppColors.primaryGreen
+                                : AppColors.primaryGreen.withOpacity(0.2),
+                          ),
+                          shape: const StadiumBorder(),
+                          labelStyle: TextStyle(
+                            color:
+                                selected ? Colors.white : AppColors.darkGreen,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12.5,
+                          ),
+                          onSelected: (_) {
+                            setState(() => _selectedCategory = code);
+                            _loadKosts();
+                          },
+                        ),
+                      );
+                    }).toList(),
+                  )
+                : ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: const [
+                      ('Semua', 'Semua Harian', Icons.apps_rounded),
+                      ('Villa', 'Villa', Icons.villa_rounded),
+                      ('Homestay', 'Homestay', Icons.cottage_rounded),
+                    ].map((item) {
+                      final code = item.$1;
+                      final label = item.$2;
+                      final icon = item.$3;
+                      final selected = _selectedDailySubType == code;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          avatar: Icon(
+                            icon,
+                            size: 16,
+                            color: selected
+                                ? Colors.white
+                                : const Color(0xFF0369A1),
+                          ),
+                          label: Text(label),
+                          selected: selected,
+                          showCheckmark: false,
+                          selectedColor: const Color(0xFF0369A1),
+                          backgroundColor: const Color(0xFFE0F2FE),
+                          side: BorderSide(
+                            color: selected
+                                ? const Color(0xFF0369A1)
+                                : const Color(0xFFBAE6FD),
+                          ),
+                          shape: const StadiumBorder(),
+                          labelStyle: TextStyle(
+                            color: selected
+                                ? Colors.white
+                                : const Color(0xFF0C4A6E),
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12.5,
+                          ),
+                          onSelected: (_) {
+                            setState(() => _selectedDailySubType = code);
+                            _loadKosts();
+                          },
+                        ),
+                      );
+                    }).toList(),
+                  ),
           ),
           const SizedBox(height: 8),
 
@@ -2033,7 +1729,10 @@ class _MainScreenState extends State<MainScreen> {
                       onPressed: () {
                         setState(() {
                           _searchCtrl.clear();
-                          _selectedCategory = 'SEMUA';
+                          _selectedCategory = _stayDurationMode == 'HUNIAN_HARIAN'
+                              ? 'HUNIAN_HARIAN'
+                              : 'LONG_TERM';
+                          _selectedDailySubType = 'Semua';
                           _selectedCity = 'Semua Kota';
                           _selectedType = 'Semua';
                           _selectedFacility = null;
@@ -2045,8 +1744,9 @@ class _MainScreenState extends State<MainScreen> {
                       },
                     ),
                   ),
-                // Gender Type Segmented Pills
-                ..._kostTypes.map((type) {
+                // Gender Type Segmented Pills (hanya untuk hunian jangka panjang)
+                if (_stayDurationMode != 'HUNIAN_HARIAN')
+                  ..._kostTypes.map((type) {
                   final isSelected = _selectedType == type;
                   return Padding(
                     padding: const EdgeInsets.only(right: 6),
@@ -2355,7 +2055,134 @@ class _MainScreenState extends State<MainScreen> {
                 ),
               ),
             )
-          else
+          else ...[
+            if (_recentlyViewedKosts.isNotEmpty)
+              SliverToBoxAdapter(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(16, 10, 16, 8),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.history_toggle_off_rounded,
+                            size: 16,
+                            color: AppColors.primaryGreen,
+                          ),
+                          SizedBox(width: 6),
+                          Text(
+                            'Baru Saja Dilihat',
+                            style: TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(
+                      height: 112,
+                      child: ListView.separated(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        scrollDirection: Axis.horizontal,
+                        itemCount: _recentlyViewedKosts.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 10),
+                        itemBuilder: (context, idx) {
+                          final rk = _recentlyViewedKosts[idx];
+                          return InkWell(
+                            onTap: () => _openKostDetail(rk),
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
+                              width: 210,
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: AppColors.cardBorder),
+                              ),
+                              child: Row(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: rk.images.isNotEmpty
+                                        ? Image.network(
+                                            rk.images.first,
+                                            width: 64,
+                                            height: 92,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (_, __, ___) =>
+                                                Container(
+                                              width: 64,
+                                              height: 92,
+                                              color: Colors.grey.shade200,
+                                              child: const Icon(
+                                                Icons.bed_outlined,
+                                              ),
+                                            ),
+                                          )
+                                        : Container(
+                                            width: 64,
+                                            height: 92,
+                                            color: Colors.grey.shade200,
+                                            child:
+                                                const Icon(Icons.bed_outlined),
+                                          ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Text(
+                                          rk.name,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.w700,
+                                            color: AppColors.textPrimary,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          rk.city,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontSize: 11,
+                                            color: AppColors.textSecondary,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          formatRupiah(rk.pricePerMonth),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w800,
+                                            color: AppColors.primaryGreen,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                ),
+              ),
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
               sliver: SliverList(
@@ -2423,6 +2250,7 @@ class _MainScreenState extends State<MainScreen> {
                 ),
               ),
             ),
+          ],
         ],
       ),
     );
@@ -2439,18 +2267,320 @@ class _MainScreenState extends State<MainScreen> {
         accentColor: AppColors.putriPink,
       );
     }
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: favKosts.length,
-      itemBuilder: (context, idx) {
-        final kost = favKosts[idx];
-        return KostCard(
-          kost: kost,
-          isFavorite: true,
-          onTap: () => _openKostDetail(kost),
-          onToggleFavorite: () => _toggleFavorite(kost.id),
+
+    final query = _favSearchCtrl.text.trim().toLowerCase();
+    final filteredFavs = query.isEmpty
+        ? favKosts
+        : favKosts.where((k) {
+            return k.name.toLowerCase().contains(query) ||
+                k.city.toLowerCase().contains(query) ||
+                k.district.toLowerCase().contains(query) ||
+                k.address.toLowerCase().contains(query) ||
+                k.type.toLowerCase().contains(query) ||
+                k.propertyCategory.toLowerCase().contains(query) ||
+                k.nearbyLandmark.toLowerCase().contains(query);
+          }).toList();
+
+    return Column(
+      children: [
+        Container(
+          color: Colors.white,
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF3F6F9),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFE5EAF0)),
+                      ),
+                      child: TextField(
+                        controller: _favSearchCtrl,
+                        onChanged: (_) => setState(() {}),
+                        style: const TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.textPrimary,
+                        ),
+                        decoration: InputDecoration(
+                          hintText:
+                              'Cari di daftar favorit (nama, area, tipe)...',
+                          hintStyle: TextStyle(
+                            color: Colors.grey.shade500,
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w400,
+                          ),
+                          prefixIcon: const Icon(
+                            Icons.search_rounded,
+                            color: AppColors.primaryGreen,
+                            size: 21,
+                          ),
+                          suffixIcon: _favSearchCtrl.text.isNotEmpty
+                              ? IconButton(
+                                  onPressed: () {
+                                    _favSearchCtrl.clear();
+                                    setState(() {});
+                                  },
+                                  icon:
+                                      const Icon(Icons.close_rounded, size: 18),
+                                )
+                              : null,
+                          filled: false,
+                          contentPadding:
+                              const EdgeInsets.symmetric(vertical: 12),
+                          border: InputBorder.none,
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (favKosts.length >= 2) ...[
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _compareMode
+                            ? Colors.white
+                            : AppColors.primaryGreen,
+                        backgroundColor: _compareMode
+                            ? AppColors.primaryGreen
+                            : Colors.white,
+                        side: const BorderSide(color: AppColors.primaryGreen),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 11,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _compareMode = !_compareMode;
+                          if (!_compareMode) _compareIds.clear();
+                        });
+                      },
+                      icon: const Icon(Icons.compare_arrows_rounded, size: 18),
+                      label: Text(
+                        _compareMode ? 'Batal' : 'Bandingkan',
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              if (_compareMode) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Pilih 2–3 properti (${_compareIds.length}/3 dipilih)',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primaryGreen,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 8,
+                        ),
+                        minimumSize: Size.zero,
+                      ),
+                      onPressed: _compareIds.length >= 2
+                          ? () {
+                              final selected = favKosts
+                                  .where((k) => _compareIds.contains(k.id))
+                                  .toList();
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      CompareKostsScreen(kosts: selected),
+                                ),
+                              );
+                            }
+                          : null,
+                      child: Text(
+                        'Bandingkan (${_compareIds.length})',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+        Expanded(
+          child: filteredFavs.isEmpty
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.search_off_rounded,
+                          size: 48,
+                          color: Colors.grey.shade400,
+                        ),
+                        const SizedBox(height: 10),
+                        const Text(
+                          'Favorit tidak ditemukan',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Tidak ada properti favorit yang cocok dengan "${_favSearchCtrl.text.trim()}".',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        OutlinedButton(
+                          onPressed: () {
+                            _favSearchCtrl.clear();
+                            setState(() {});
+                          },
+                          child: const Text('Reset Pencarian'),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: filteredFavs.length,
+                  itemBuilder: (context, idx) {
+                    final kost = filteredFavs[idx];
+                    final selectedForCompare = _compareIds.contains(kost.id);
+                    return Stack(
+                      children: [
+                        KostCard(
+                          kost: kost,
+                          isFavorite: true,
+                          onTap: _compareMode
+                              ? () {
+                                  setState(() {
+                                    if (selectedForCompare) {
+                                      _compareIds.remove(kost.id);
+                                    } else if (_compareIds.length < 3) {
+                                      _compareIds.add(kost.id);
+                                    } else {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'Maksimal 3 properti untuk dibandingkan.',
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                  });
+                                }
+                              : () => _openKostDetail(kost),
+                          onToggleFavorite: () => _toggleFavorite(kost.id),
+                        ),
+                        if (_compareMode)
+                          Positioned(
+                            top: 10,
+                            left: 10,
+                            child: Material(
+                              color: selectedForCompare
+                                  ? AppColors.primaryGreen
+                                  : Colors.white,
+                              shape: const CircleBorder(),
+                              elevation: 2,
+                              child: Padding(
+                                padding: const EdgeInsets.all(6),
+                                child: Icon(
+                                  selectedForCompare
+                                      ? Icons.check_rounded
+                                      : Icons.add_rounded,
+                                  size: 18,
+                                  color: selectedForCompare
+                                      ? Colors.white
+                                      : AppColors.textPrimary,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBookingTimeline(String status) {
+    final s = status.toUpperCase();
+    int step = 0;
+    if (s == 'DISETUJUI' || s == 'APPROVED' || s == 'AKTIF') step = 1;
+    if (s == 'SELESAI') step = 2;
+
+    const labels = ['Terkirim', 'Dikonfirmasi', 'Selesai'];
+    return Row(
+      children: List.generate(labels.length * 2 - 1, (i) {
+        if (i.isOdd) {
+          final done = (i ~/ 2) < step;
+          return Expanded(
+            child: Container(
+              height: 2,
+              margin: const EdgeInsets.only(bottom: 14),
+              color: done ? AppColors.primaryGreen : Colors.grey.shade300,
+            ),
+          );
+        }
+        final idx = i ~/ 2;
+        final active = idx <= step;
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 18,
+              height: 18,
+              decoration: BoxDecoration(
+                color: active ? AppColors.primaryGreen : Colors.grey.shade200,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                active ? Icons.check_rounded : Icons.circle,
+                size: active ? 12 : 6,
+                color: active ? Colors.white : Colors.grey.shade400,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              labels[idx],
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                color: active ? AppColors.darkGreen : Colors.grey.shade500,
+              ),
+            ),
+          ],
         );
-      },
+      }),
     );
   }
 
@@ -2470,13 +2600,13 @@ class _MainScreenState extends State<MainScreen> {
               ),
               const SizedBox(height: 12),
               const Text(
-                'Masuk untuk Melihat Pengajuan Sewa',
+                'Masuk untuk Melihat Jadwal Survei',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
               ),
               const SizedBox(height: 6),
               Text(
-                'Silakan masuk di tab Profil agar riwayat sewa dan survei Anda tampil sesuai akun.',
+                'Silakan masuk di tab Profil agar riwayat survei Anda tampil sesuai akun.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
               ),
@@ -2496,18 +2626,18 @@ class _MainScreenState extends State<MainScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              Icons.receipt_long_outlined,
+              Icons.event_available_outlined,
               size: 56,
               color: Colors.grey.shade400,
             ),
             const SizedBox(height: 12),
             const Text(
-              'Belum Ada Pengajuan Sewa',
+              'Belum Ada Jadwal Survei',
               style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
             ),
             const SizedBox(height: 4),
             Text(
-              'Pilih kost dan klik "Ajukan Sewa" untuk menyewa kamar.',
+              'Pilih properti dan klik "Ajukan Survei" untuk menjadwalkan kunjungan.',
               style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
             ),
           ],
@@ -2564,7 +2694,7 @@ class _MainScreenState extends State<MainScreen> {
                       const SizedBox(width: 8),
                       Flexible(
                         child: Text(
-                          'Mulai: ${b.startDate} (${b.durationMonths} bln)',
+                          'Tanggal: ${b.startDate}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -2585,7 +2715,7 @@ class _MainScreenState extends State<MainScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Penyewa: ${b.tenantName} (${b.tenantPhone})',
+                    'Pengaju: ${b.tenantName} (${b.tenantPhone})',
                     style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
                   ),
                   if (b.notes != null && b.notes!.isNotEmpty) ...[
@@ -2599,6 +2729,10 @@ class _MainScreenState extends State<MainScreen> {
                       ),
                     ),
                   ],
+                  if (b.status != 'DIBATALKAN' && b.status != 'DITOLAK') ...[
+                    const SizedBox(height: 10),
+                    _buildBookingTimeline(b.status),
+                  ],
                   const Divider(height: 18),
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -2608,9 +2742,7 @@ class _MainScreenState extends State<MainScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              b.isSurvey
-                                  ? 'Jadwal Survei: ${b.surveyDateTime}'
-                                  : 'Estimasi Biaya Sewa',
+                              'Jadwal Survei: ${b.surveyDateTime.isNotEmpty ? b.surveyDateTime : b.startDate}',
                               style: const TextStyle(
                                 fontSize: 12,
                                 color: AppColors.textSecondary,
@@ -2618,7 +2750,7 @@ class _MainScreenState extends State<MainScreen> {
                             ),
                             const SizedBox(height: 2),
                             const Text(
-                              'Transaksi diselesaikan langsung dengan pemilik di luar aplikasi',
+                              'Kesepakatan & transaksi diselesaikan langsung dengan pemilik di luar aplikasi',
                               style: TextStyle(
                                 fontSize: 11,
                                 color: AppColors.textSecondary,
@@ -2627,17 +2759,6 @@ class _MainScreenState extends State<MainScreen> {
                           ],
                         ),
                       ),
-                      if (!b.isSurvey) ...[
-                        const SizedBox(width: 10),
-                        Text(
-                          formatRupiah(b.totalPrice),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 15,
-                            color: AppColors.primaryGreen,
-                          ),
-                        ),
-                      ],
                     ],
                   ),
                   if (b.kost != null ||
@@ -2688,10 +2809,9 @@ class _MainScreenState extends State<MainScreen> {
                       ],
                     ),
                   ],
-                  if (!b.isSurvey &&
-                      (b.status == 'DISETUJUI' ||
-                          b.status == 'APPROVED' ||
-                          b.status == 'AKTIF')) ...[
+                  if (b.status == 'DISETUJUI' ||
+                      b.status == 'APPROVED' ||
+                      b.status == 'AKTIF') ...[
                     const SizedBox(height: 10),
                     SizedBox(
                       width: double.infinity,

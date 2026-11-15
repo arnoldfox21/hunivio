@@ -116,13 +116,16 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
     }
   }
 
-  Future<void> _confirmDeleteUser(UserProfile user) async {
+  Future<void> _confirmToggleBanUser(UserProfile user) async {
+    final willBan = !user.isBanned;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Hapus Pengguna'),
+        title: Text(willBan ? 'Ban Pengguna' : 'Buka Ban Pengguna'),
         content: Text(
-          'Yakin ingin menghapus akun ${user.name} (${user.email})?',
+          willBan
+              ? 'Yakin ingin mem-banned akun ${user.name} (${user.email})? Pengguna tidak akan bisa masuk lagi dan sesi aktifnya akan dihentikan.'
+              : 'Yakin ingin membuka ban akun ${user.name} (${user.email}) agar bisa masuk kembali?',
         ),
         actions: [
           TextButton(
@@ -131,11 +134,12 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red.shade700,
+              backgroundColor:
+                  willBan ? Colors.red.shade700 : AppColors.primaryGreen,
               foregroundColor: Colors.white,
             ),
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Hapus'),
+            child: Text(willBan ? 'Ban' : 'Buka Ban'),
           ),
         ],
       ),
@@ -144,16 +148,27 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
     if (confirmed != true) return;
     setState(() => _updatingUserIds.add(user.id));
     try {
-      await ApiService.deleteUser(user.id);
+      final updated = await ApiService.setUserBanStatus(
+        userId: user.id,
+        isBanned: willBan,
+      );
       if (!mounted) return;
       setState(() {
-        _users.removeWhere((u) => u.id == user.id);
+        final idx = _users.indexWhere((u) => u.id == user.id);
+        if (idx >= 0) {
+          _users[idx] = updated;
+        }
         _updatingUserIds.remove(user.id);
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          backgroundColor: AppColors.primaryGreen,
-          content: Text('Pengguna ${user.name} berhasil dihapus.'),
+          backgroundColor:
+              willBan ? Colors.red.shade700 : AppColors.primaryGreen,
+          content: Text(
+            willBan
+                ? 'Pengguna ${user.name} berhasil dibanned.'
+                : 'Ban pengguna ${user.name} berhasil dibuka.',
+          ),
         ),
       );
     } catch (e) {
@@ -162,7 +177,11 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: Colors.red.shade700,
-          content: Text('Gagal menghapus pengguna: $e'),
+          content: Text(
+            willBan
+                ? 'Gagal mem-banned pengguna: $e'
+                : 'Gagal membuka ban pengguna: $e',
+          ),
         ),
       );
     }
@@ -405,24 +424,61 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                                               ],
                                             ),
                                           ),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                              vertical: 4,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: _roleBadgeBg(user),
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                            ),
-                                            child: Text(
-                                              user.roleLabel,
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.w700,
-                                                color: _roleBadgeFg(user),
+                                          Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.end,
+                                            children: [
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                  horizontal: 8,
+                                                  vertical: 4,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: _roleBadgeBg(user),
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                ),
+                                                child: Text(
+                                                  user.roleLabel,
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w700,
+                                                    color: _roleBadgeFg(user),
+                                                  ),
+                                                ),
                                               ),
-                                            ),
+                                              if (user.isBanned) ...[
+                                                const SizedBox(height: 4),
+                                                Container(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                    horizontal: 8,
+                                                    vertical: 3,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.red.shade50,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            8),
+                                                    border: Border.all(
+                                                      color:
+                                                          Colors.red.shade200,
+                                                    ),
+                                                  ),
+                                                  child: Text(
+                                                    'DIBANNED',
+                                                    style: TextStyle(
+                                                      fontSize: 10,
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                      color:
+                                                          Colors.red.shade700,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ],
                                           ),
                                         ],
                                       ),
@@ -480,14 +536,22 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                                           if (!isProtected) ...[
                                             const SizedBox(width: 8),
                                             IconButton(
-                                              tooltip: 'Hapus Pengguna',
+                                              tooltip: user.isBanned
+                                                  ? 'Buka Ban Pengguna'
+                                                  : 'Ban Pengguna',
                                               onPressed: isBusy
                                                   ? null
                                                   : () =>
-                                                      _confirmDeleteUser(user),
+                                                      _confirmToggleBanUser(
+                                                        user,
+                                                      ),
                                               icon: Icon(
-                                                Icons.delete_outline_rounded,
-                                                color: Colors.red.shade700,
+                                                user.isBanned
+                                                    ? Icons.lock_open_rounded
+                                                    : Icons.block_rounded,
+                                                color: user.isBanned
+                                                    ? AppColors.primaryGreen
+                                                    : Colors.red.shade700,
                                               ),
                                             ),
                                           ],

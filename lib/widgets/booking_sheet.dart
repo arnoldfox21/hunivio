@@ -23,8 +23,6 @@ class _BookingSheetState extends State<BookingSheet> {
   final _nameCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
-  String _bookingType = 'SEWA'; // 'SEWA' | 'SURVEI'
-  int _durationMonths = 1;
   String _surveyTime = '10:00 WIB';
   DateTime _startDate = DateTime.now().add(const Duration(days: 2));
   bool _submitting = false;
@@ -61,23 +59,18 @@ class _BookingSheetState extends State<BookingSheet> {
         tenantName: _nameCtrl.text.trim(),
         tenantPhone: _phoneCtrl.text.trim(),
         startDate: formattedDate,
-        durationMonths: _bookingType == 'SURVEI' ? 1 : _durationMonths,
-        bookingType: _bookingType,
-        surveyDateTime:
-            _bookingType == 'SURVEI' ? '$formattedDate $_surveyTime' : '',
-        paymentMethod: 'LUAR_APP',
+        bookingType: 'SURVEI',
+        surveyDateTime: '$formattedDate $_surveyTime',
         notes: _notesCtrl.text.trim(),
       );
       if (!mounted) return;
       Navigator.of(context).pop();
       widget.onSuccess();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+        const SnackBar(
           backgroundColor: AppColors.primaryGreen,
           content: Text(
-            _bookingType == 'SURVEI'
-                ? 'Info jadwal survei terkirim ke pemilik & chat otomatis masuk!'
-                : 'Info pengajuan sewa terkirim ke pemilik & chat otomatis masuk!',
+            'Info jadwal survei terkirim ke pemilik & chat otomatis masuk!',
           ),
         ),
       );
@@ -96,9 +89,6 @@ class _BookingSheetState extends State<BookingSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final isSurvey = _bookingType == 'SURVEI';
-    final total = isSurvey ? 0 : widget.kost.pricePerMonth * _durationMonths;
-
     return Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -115,10 +105,10 @@ class _BookingSheetState extends State<BookingSheet> {
             children: [
               Row(
                 children: [
-                  Expanded(
+                  const Expanded(
                     child: Text(
-                      isSurvey ? 'Ajukan Jadwal Survei' : 'Ajukan Sewa Properti',
-                      style: const TextStyle(
+                      'Ajukan Jadwal Survei',
+                      style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w800,
                       ),
@@ -136,41 +126,6 @@ class _BookingSheetState extends State<BookingSheet> {
                   color: Colors.grey.shade700,
                   fontWeight: FontWeight.w600,
                 ),
-              ),
-              const SizedBox(height: 12),
-
-              // Mode Selector: Sewa vs Survei
-              Row(
-                children: [
-                  Expanded(
-                    child: ChoiceChip(
-                      label: const Center(child: Text('Ajukan Sewa')),
-                      selected: !isSurvey,
-                      showCheckmark: false,
-                      selectedColor: AppColors.primaryGreen,
-                      labelStyle: TextStyle(
-                        color: !isSurvey ? Colors.white : AppColors.textPrimary,
-                        fontWeight: FontWeight.w700,
-                      ),
-                      onSelected: (_) => setState(() => _bookingType = 'SEWA'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ChoiceChip(
-                      label: const Center(child: Text('Jadwal Survei')),
-                      selected: isSurvey,
-                      showCheckmark: false,
-                      selectedColor: AppColors.primaryGreen,
-                      labelStyle: TextStyle(
-                        color: isSurvey ? Colors.white : AppColors.textPrimary,
-                        fontWeight: FontWeight.w700,
-                      ),
-                      onSelected: (_) =>
-                          setState(() => _bookingType = 'SURVEI'),
-                    ),
-                  ),
-                ],
               ),
               const SizedBox(height: 14),
 
@@ -220,8 +175,7 @@ class _BookingSheetState extends State<BookingSheet> {
                       },
                       child: InputDecorator(
                         decoration: InputDecoration(
-                          labelText:
-                              isSurvey ? 'Tanggal Survei' : 'Tanggal Mulai',
+                          labelText: 'Tanggal Survei',
                           prefixIcon: const Icon(Icons.calendar_today_outlined),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
@@ -235,90 +189,63 @@ class _BookingSheetState extends State<BookingSheet> {
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: isSurvey
-                        ? DropdownButtonFormField<String>(
-                            value: _surveyTime,
-                            decoration: InputDecoration(
-                              labelText: 'Jam Survei',
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            items: const [
-                              DropdownMenuItem(
-                                  value: '10:00 WIB', child: Text('10:00 WIB')),
-                              DropdownMenuItem(
-                                  value: '13:00 WIB', child: Text('13:00 WIB')),
-                              DropdownMenuItem(
-                                  value: '16:00 WIB', child: Text('16:00 WIB')),
-                              DropdownMenuItem(
-                                  value: '19:00 WIB', child: Text('19:00 WIB')),
-                            ],
-                            onChanged: (v) {
-                              if (v != null) setState(() => _surveyTime = v);
-                            },
-                          )
-                        : DropdownButtonFormField<int>(
-                            value: _durationMonths,
-                            decoration: InputDecoration(
-                              labelText: 'Durasi Sewa',
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            items: const [
-                              DropdownMenuItem(
-                                  value: 1, child: Text('1 Bulan')),
-                              DropdownMenuItem(
-                                  value: 3, child: Text('3 Bulan')),
-                              DropdownMenuItem(
-                                  value: 6, child: Text('6 Bulan')),
-                              DropdownMenuItem(
-                                  value: 12, child: Text('12 Bulan')),
-                            ],
-                            onChanged: (v) {
-                              if (v != null) {
-                                setState(() => _durationMonths = v);
-                              }
-                            },
-                          ),
+                    child: DropdownButtonFormField<String>(
+                      value: _surveyTime,
+                      decoration: InputDecoration(
+                        labelText: 'Jam Survei',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                            value: '10:00 WIB', child: Text('10:00 WIB')),
+                        DropdownMenuItem(
+                            value: '13:00 WIB', child: Text('13:00 WIB')),
+                        DropdownMenuItem(
+                            value: '16:00 WIB', child: Text('16:00 WIB')),
+                        DropdownMenuItem(
+                            value: '19:00 WIB', child: Text('19:00 WIB')),
+                      ],
+                      onChanged: (v) {
+                        if (v != null) setState(() => _surveyTime = v);
+                      },
+                    ),
                   ),
                 ],
               ),
 
-              if (!isSurvey) ...[
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF0FDF4),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: AppColors.primaryGreen.withOpacity(0.25),
-                    ),
-                  ),
-                  child: const Row(
-                    children: [
-                      Icon(
-                        Icons.chat_bubble_outline_rounded,
-                        size: 18,
-                        color: AppColors.primaryGreen,
-                      ),
-                      SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          'Transaksi & pembayaran dilakukan langsung dengan pemilik di luar aplikasi. Info pengajuan akan otomatis dikirim via chat ke pemilik.',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: AppColors.textPrimary,
-                            height: 1.35,
-                          ),
-                        ),
-                      ),
-                    ],
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0FDF4),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: AppColors.primaryGreen.withOpacity(0.25),
                   ),
                 ),
-              ],
+                child: const Row(
+                  children: [
+                    Icon(
+                      Icons.chat_bubble_outline_rounded,
+                      size: 18,
+                      color: AppColors.primaryGreen,
+                    ),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Jadwal survei akan otomatis dikirim ke chat pemilik. Kesepakatan sewa & pembayaran dilakukan langsung di luar aplikasi.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textPrimary,
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
 
               const SizedBox(height: 12),
               TextFormField(
@@ -331,37 +258,7 @@ class _BookingSheetState extends State<BookingSheet> {
                   ),
                 ),
               ),
-              const SizedBox(height: 14),
-
-              if (!isSurvey)
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: AppColors.lightGreenBg,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Total Estimasi ($_durationMonths bulan)',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.darkGreen,
-                        ),
-                      ),
-                      Text(
-                        formatRupiah(total),
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.darkGreen,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
                 height: 48,
@@ -380,11 +277,9 @@ class _BookingSheetState extends State<BookingSheet> {
                             color: Colors.white,
                           ),
                         )
-                      : Text(
-                          isSurvey
-                              ? 'Konfirmasi Jadwal Survei'
-                              : 'Konfirmasi & Ajukan Sewa',
-                          style: const TextStyle(
+                      : const Text(
+                          'Konfirmasi Jadwal Survei',
+                          style: TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w700,
                           ),
