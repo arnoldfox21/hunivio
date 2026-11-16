@@ -785,6 +785,7 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
                           final files = await _imagePicker.pickMultiImage(
                             imageQuality: 80,
                             maxWidth: 1280,
+                            maxHeight: 1280,
                           );
                           if (!mounted) return;
                           if (files.isNotEmpty) {
@@ -805,6 +806,7 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
                             source: ImageSource.camera,
                             imageQuality: 80,
                             maxWidth: 1280,
+                            maxHeight: 1280,
                           );
                           if (!mounted) return;
                           if (file != null) {

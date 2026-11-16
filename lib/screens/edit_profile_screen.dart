@@ -133,6 +133,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final picked = await _picker.pickImage(
       source: source,
       maxWidth: isCover ? 1400 : 800,
+      maxHeight: isCover ? 1400 : 800,
       imageQuality: 82,
     );
     if (picked == null || !mounted) return;

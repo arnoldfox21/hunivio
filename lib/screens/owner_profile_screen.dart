@@ -300,6 +300,7 @@ class _OwnerProfileScreenState extends State<OwnerProfileScreen>
                               final picked = await _picker.pickImage(
                                 source: ImageSource.gallery,
                                 maxWidth: 1400,
+                                maxHeight: 1400,
                                 imageQuality: 82,
                               );
                               if (!ctx.mounted) return;
