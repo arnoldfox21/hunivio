@@ -10,6 +10,7 @@ import '../services/notification_service.dart';
 import '../utils/formatters.dart';
 import '../widgets/animated_vectors.dart';
 import '../widgets/app_user_guide_overlay.dart';
+import '../widgets/direct_booking_sheet.dart';
 import '../widgets/kost_card.dart';
 import '../widgets/kost_map_search_view.dart';
 import 'add_property_wizard_screen.dart';
@@ -19,6 +20,7 @@ import 'compare_kosts_screen.dart';
 import 'kost_chat_screen.dart';
 import 'kost_detail_screen.dart';
 import 'kost_group_chat_screen.dart';
+import 'owner_profile_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -47,6 +49,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   String _selectedCategory = 'LONG_TERM'; // 'LONG_TERM' | 'KOST' | 'APARTEMEN' | 'KONTRAKAN' | 'HUNIAN_HARIAN'
   String _selectedDailySubType = 'Semua'; // 'Semua' | 'Villa' | 'Homestay'
   String _selectedCity = 'Semua Kota';
+  String _selectedDistrict = 'Semua Area';
   String _selectedType = 'Semua';
   String? _selectedFacility;
   int? _minPrice;
@@ -73,7 +76,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   String? _errorMsg;
 
   List<String> _cities = ['Semua Kota'];
-  List<String> _kostTypes = ['Semua'];
+  List<Map<String, dynamic>> _cityStats = [];
   List<String> _facilityChips = [];
   List<String> _searchHistory = [];
   static const String _searchHistoryPrefsKey = 'search_history_list';
@@ -127,14 +130,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         description:
             'Tekan tombol ini untuk melihat sebaran lokasi properti di peta interaktif atau daftar.',
       ),
-      UserGuideStep(
-        targetKey: _guideChatKey,
-        icon: Icons.chat_bubble_outline_rounded,
-        title: 'Kotak Pesan & Grup',
-        description:
-            'Chat langsung dengan pemilik/penyewa atau bergabung dengan grup penghuni properti.',
-        borderRadius: 20,
-      ),
+      if (AuthService.currentUser != null)
+        UserGuideStep(
+          targetKey: _guideChatKey,
+          icon: Icons.chat_bubble_outline_rounded,
+          title: 'Kotak Pesan & Grup',
+          description:
+              'Chat langsung dengan pemilik/penyewa atau bergabung dengan grup penghuni properti.',
+          borderRadius: 20,
+        ),
       UserGuideStep(
         targetKey: _guideProfileBtnKey,
         icon: Icons.account_circle_outlined,
@@ -241,17 +245,21 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   Future<void> _loadDynamicFilters() async {
     try {
-      final filters = await ApiService.fetchFilters();
+      final results = await Future.wait<dynamic>([
+        ApiService.fetchFilters(),
+        ApiService.fetchCityFilterStats(),
+      ]);
       if (!mounted) return;
+      final filters = results[0] as Map<String, List<String>>;
+      final stats = results[1] as List<Map<String, dynamic>>;
       setState(() {
         final dbCities = filters['cities'] ?? [];
         _cities = ['Semua Kota', ...dbCities];
+        _cityStats = stats;
         if (!_cities.contains(_selectedCity)) {
           _selectedCity = 'Semua Kota';
+          _selectedDistrict = 'Semua Area';
         }
-
-        final dbTypes = filters['types'] ?? [];
-        _kostTypes = ['Semua', ...dbTypes];
 
         final dbFacilities = filters['facilities'] ?? [];
         _facilityChips = dbFacilities;
@@ -364,6 +372,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             _stayDurationMode == 'HUNIAN_HARIAN' ? _selectedDailySubType : null,
         type: _stayDurationMode == 'HUNIAN_HARIAN' ? null : _selectedType,
         city: _selectedCity,
+        district: _selectedDistrict,
         facility: _selectedFacility,
         minPrice: _minPrice,
         maxPrice: _maxPrice,
@@ -405,6 +414,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             _stayDurationMode == 'HUNIAN_HARIAN' ? _selectedDailySubType : null,
         type: _stayDurationMode == 'HUNIAN_HARIAN' ? null : _selectedType,
         city: _selectedCity,
+        district: _selectedDistrict,
         facility: _selectedFacility,
         minPrice: _minPrice,
         maxPrice: _maxPrice,
@@ -434,6 +444,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             _stayDurationMode == 'HUNIAN_HARIAN' ? _selectedDailySubType : null,
         type: _stayDurationMode == 'HUNIAN_HARIAN' ? null : _selectedType,
         city: _selectedCity,
+        district: _selectedDistrict,
       );
       if (mounted) {
         setState(() => _mapKosts = pts);
@@ -869,26 +880,35 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           ),
         ),
         actions: [
-          ValueListenableBuilder<int>(
-            valueListenable: NotificationService.totalUnreadCount,
-            builder: (context, unread, _) {
-              return IconButton(
-                key: _guideChatKey,
-                tooltip: 'Kotak Pesan',
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const ChatInboxScreen()),
+          ValueListenableBuilder<UserProfile?>(
+            valueListenable: AuthService.currentUserNotifier,
+            builder: (context, user, _) {
+              if (user == null) {
+                return const SizedBox.shrink();
+              }
+              return ValueListenableBuilder<int>(
+                valueListenable: NotificationService.totalUnreadCount,
+                builder: (context, unread, _) {
+                  return IconButton(
+                    key: _guideChatKey,
+                    tooltip: 'Kotak Pesan',
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const ChatInboxScreen()),
+                      );
+                    },
+                    icon: Badge(
+                      isLabelVisible: unread > 0,
+                      label: Text('$unread'),
+                      backgroundColor: AppColors.primaryGreen,
+                      child: const Icon(
+                        Icons.chat_bubble_outline_rounded,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
                   );
                 },
-                icon: Badge(
-                  isLabelVisible: unread > 0,
-                  label: Text('$unread'),
-                  backgroundColor: AppColors.primaryGreen,
-                  child: const Icon(
-                    Icons.chat_bubble_outline_rounded,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
               );
             },
           ),
@@ -944,6 +964,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                             avatarUrl,
                             width: 28,
                             height: 28,
+                            cacheWidth: 120,
                             fit: BoxFit.cover,
                             errorBuilder: (context, error, stackTrace) {
                               return Center(
@@ -1192,12 +1213,496 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
   }
 
+  bool get _showKostTypeFilter =>
+      _stayDurationMode != 'HUNIAN_HARIAN' &&
+      (_selectedCategory == 'LONG_TERM' || _selectedCategory == 'KOST');
+
+  String get _locationPillLabel {
+    if (_selectedCity == 'Semua Kota') return 'Semua Lokasi';
+    if (_selectedDistrict != 'Semua Area') {
+      return '$_selectedDistrict, $_selectedCity';
+    }
+    return _selectedCity;
+  }
+
+  void _showLocationPickerSheet() {
+    final searchCtrl = TextEditingController();
+    String tempCity = _selectedCity;
+    String tempDistrict = _selectedDistrict;
+
+    final List<Map<String, dynamic>> statsList = _cityStats.isNotEmpty
+        ? _cityStats
+        : _cities
+            .where((c) => c != 'Semua Kota')
+            .map((c) => <String, dynamic>{'city': c, 'count': null, 'districts': <dynamic>[]})
+            .toList();
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) {
+          final query = searchCtrl.text.trim().toLowerCase();
+          final filteredCities = statsList.where((item) {
+            if (query.isEmpty) return true;
+            final cityName = (item['city']?.toString() ?? '').toLowerCase();
+            if (cityName.contains(query)) return true;
+            final districts = (item['districts'] as List<dynamic>? ?? []);
+            return districts.any((d) =>
+                (d['district']?.toString() ?? '').toLowerCase().contains(query));
+          }).toList();
+
+          return DraggableScrollableSheet(
+            expand: false,
+            initialChildSize: 0.65,
+            maxChildSize: 0.9,
+            minChildSize: 0.45,
+            builder: (ctx, scrollCtrl) => Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Pilih Kota & Area',
+                          style: TextStyle(
+                            fontSize: 17.5,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.of(ctx).pop(),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ],
+                  ),
+                  TextField(
+                    controller: searchCtrl,
+                    onChanged: (_) => setModalState(() {}),
+                    decoration: InputDecoration(
+                      hintText: 'Cari kota atau kecamatan (mis. Lowokwaru)...',
+                      prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                      isDense: true,
+                      filled: true,
+                      fillColor: const Color(0xFFF3F6F9),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: ListView(
+                      controller: scrollCtrl,
+                      children: [
+                        ListTile(
+                          dense: true,
+                          contentPadding:
+                              const EdgeInsets.symmetric(horizontal: 8),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          tileColor: tempCity == 'Semua Kota'
+                              ? AppColors.lightGreenBg
+                              : null,
+                          leading: Icon(
+                            Icons.public_rounded,
+                            color: tempCity == 'Semua Kota'
+                                ? AppColors.primaryGreen
+                                : Colors.grey.shade600,
+                          ),
+                          title: const Text(
+                            'Semua Kota & Area',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          trailing: tempCity == 'Semua Kota'
+                              ? const Icon(
+                                  Icons.check_circle_rounded,
+                                  color: AppColors.primaryGreen,
+                                )
+                              : null,
+                          onTap: () {
+                            setState(() {
+                              _selectedCity = 'Semua Kota';
+                              _selectedDistrict = 'Semua Area';
+                            });
+                            Navigator.of(ctx).pop();
+                            _loadKosts();
+                          },
+                        ),
+                        const Divider(height: 16),
+                        if (filteredCities.isEmpty)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 24),
+                            child: Center(
+                              child: Text(
+                                'Lokasi "$query" belum tersedia.',
+                                style: TextStyle(color: Colors.grey.shade600),
+                              ),
+                            ),
+                          )
+                        else
+                          ...filteredCities.map((item) {
+                            final city = item['city']?.toString() ?? '';
+                            final count = item['count'];
+                            final districts =
+                                (item['districts'] as List<dynamic>? ?? [])
+                                    .whereType<Map>()
+                                    .toList();
+                            final isCitySelected = tempCity == city;
+
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                ListTile(
+                                  dense: true,
+                                  contentPadding:
+                                      const EdgeInsets.symmetric(horizontal: 8),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  tileColor: isCitySelected
+                                      ? AppColors.lightGreenBg
+                                      : null,
+                                  leading: Icon(
+                                    Icons.location_city_rounded,
+                                    color: isCitySelected
+                                        ? AppColors.primaryGreen
+                                        : Colors.grey.shade600,
+                                  ),
+                                  title: Text(
+                                    city,
+                                    style: TextStyle(
+                                      fontWeight: isCitySelected
+                                          ? FontWeight.w800
+                                          : FontWeight.w600,
+                                    ),
+                                  ),
+                                  subtitle: count != null
+                                      ? Text(
+                                          '$count properti tersedia',
+                                          style: const TextStyle(fontSize: 11.5),
+                                        )
+                                      : null,
+                                  trailing: isCitySelected
+                                      ? const Icon(
+                                          Icons.check_circle_rounded,
+                                          color: AppColors.primaryGreen,
+                                        )
+                                      : const Icon(
+                                          Icons.chevron_right_rounded,
+                                          size: 18,
+                                        ),
+                                  onTap: () {
+                                    if (districts.isEmpty) {
+                                      setState(() {
+                                        _selectedCity = city;
+                                        _selectedDistrict = 'Semua Area';
+                                      });
+                                      Navigator.of(ctx).pop();
+                                      _loadKosts();
+                                    } else {
+                                      setModalState(() {
+                                        tempCity = city;
+                                        tempDistrict = 'Semua Area';
+                                      });
+                                    }
+                                  },
+                                ),
+                                if (isCitySelected && districts.isNotEmpty) ...[
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                        12, 6, 8, 12),
+                                    child: Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: [
+                                        ChoiceChip(
+                                          label: const Text('Semua Area'),
+                                          selected:
+                                              tempDistrict == 'Semua Area',
+                                          selectedColor: AppColors.primaryGreen,
+                                          labelStyle: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700,
+                                            color: tempDistrict == 'Semua Area'
+                                                ? Colors.white
+                                                : AppColors.textPrimary,
+                                          ),
+                                          showCheckmark: false,
+                                          onSelected: (_) {
+                                            setState(() {
+                                              _selectedCity = city;
+                                              _selectedDistrict = 'Semua Area';
+                                            });
+                                            Navigator.of(ctx).pop();
+                                            _loadKosts();
+                                          },
+                                        ),
+                                        ...districts.map((d) {
+                                          final distName =
+                                              d['district']?.toString() ?? '';
+                                          final distCount = d['count'];
+                                          final selected =
+                                              tempDistrict == distName;
+                                          return ChoiceChip(
+                                            label: Text(
+                                              distCount != null
+                                                  ? '$distName ($distCount)'
+                                                  : distName,
+                                            ),
+                                            selected: selected,
+                                            selectedColor:
+                                                AppColors.primaryGreen,
+                                            labelStyle: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                              color: selected
+                                                  ? Colors.white
+                                                  : AppColors.textPrimary,
+                                            ),
+                                            showCheckmark: false,
+                                            onSelected: (_) {
+                                              setState(() {
+                                                _selectedCity = city;
+                                                _selectedDistrict = distName;
+                                              });
+                                              Navigator.of(ctx).pop();
+                                              _loadKosts();
+                                            },
+                                          );
+                                        }),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            );
+                          }),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    ).whenComplete(searchCtrl.dispose);
+  }
+
+  void _showTypePickerSheet() {
+    final options = [
+      (
+        value: 'Semua',
+        title: 'Semua Tipe',
+        subtitle: 'Tampilkan Kost Putri, Putra, maupun Campur',
+        icon: Icons.groups_rounded,
+      ),
+      (
+        value: 'Putri',
+        title: 'Putri',
+        subtitle: 'Khusus penghuni wanita',
+        icon: Icons.female_rounded,
+      ),
+      (
+        value: 'Putra',
+        title: 'Putra',
+        subtitle: 'Khusus penghuni pria',
+        icon: Icons.male_rounded,
+      ),
+      (
+        value: 'Campur',
+        title: 'Campur',
+        subtitle: 'Untuk pria & wanita atau pasangan/keluarga',
+        icon: Icons.people_outline_rounded,
+      ),
+    ];
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Pilih Tipe Penghuni Kost',
+                    style: TextStyle(
+                      fontSize: 17.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            ...options.map((opt) {
+              final selected = _selectedType == opt.value;
+              return ListTile(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                tileColor: selected ? AppColors.lightGreenBg : null,
+                leading: CircleAvatar(
+                  backgroundColor: selected
+                      ? AppColors.primaryGreen
+                      : const Color(0xFFF3F6F9),
+                  child: Icon(
+                    opt.icon,
+                    color: selected ? Colors.white : AppColors.textPrimary,
+                    size: 20,
+                  ),
+                ),
+                title: Text(
+                  opt.title,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                subtitle: Text(
+                  opt.subtitle,
+                  style: const TextStyle(fontSize: 12),
+                ),
+                trailing: selected
+                    ? const Icon(
+                        Icons.check_circle_rounded,
+                        color: AppColors.primaryGreen,
+                      )
+                    : null,
+                onTap: () {
+                  setState(() => _selectedType = opt.value);
+                  Navigator.of(ctx).pop();
+                  _loadKosts();
+                },
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showFacilityPickerSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => SafeArea(
+        top: false,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.65,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Filter Fasilitas Utama',
+                        style: TextStyle(
+                          fontSize: 17.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ChoiceChip(
+                          label: const Text('Semua Fasilitas'),
+                          selected: _selectedFacility == null,
+                          showCheckmark: false,
+                          selectedColor: AppColors.primaryGreen,
+                          labelStyle: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: _selectedFacility == null
+                                ? Colors.white
+                                : AppColors.textPrimary,
+                          ),
+                          onSelected: (_) {
+                            setState(() => _selectedFacility = null);
+                            Navigator.of(ctx).pop();
+                            _loadKosts();
+                          },
+                        ),
+                        ..._facilityChips.map((fac) {
+                          final selected = _selectedFacility == fac;
+                          return ChoiceChip(
+                            label: Text(fac),
+                            selected: selected,
+                            showCheckmark: false,
+                            selectedColor: AppColors.primaryGreen,
+                            labelStyle: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: selected
+                                  ? Colors.white
+                                  : AppColors.textPrimary,
+                            ),
+                            onSelected: (_) {
+                              setState(() {
+                                _selectedFacility = selected ? null : fac;
+                              });
+                              Navigator.of(ctx).pop();
+                              _loadKosts();
+                            },
+                          );
+                        }),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildTopSearchFilterPanel() {
     final hasActiveFilter = _searchCtrl.text.trim().isNotEmpty ||
         (_stayDurationMode == 'LONG_TERM'
             ? _selectedCategory != 'LONG_TERM'
             : _selectedDailySubType != 'Semua') ||
         _selectedCity != 'Semua Kota' ||
+        _selectedDistrict != 'Semua Area' ||
         _selectedType != 'Semua' ||
         _selectedFacility != null ||
         _minPrice != null ||
@@ -1665,45 +2170,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           ),
           const SizedBox(height: 8),
 
-          // City Horizontal Chips
-          SizedBox(
-            height: 35,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: _cities.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 7),
-              itemBuilder: (context, idx) {
-                final city = _cities[idx];
-                final selected = _selectedCity == city;
-                return ChoiceChip(
-                  label: Text(city),
-                  selected: selected,
-                  showCheckmark: false,
-                  selectedColor: AppColors.primaryGreen,
-                  backgroundColor: const Color(0xFFF3F6F9),
-                  side: BorderSide(
-                    color: selected
-                        ? AppColors.primaryGreen
-                        : const Color(0xFFE5EAF0),
-                  ),
-                  shape: const StadiumBorder(),
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                  labelStyle: TextStyle(
-                    color: selected ? Colors.white : AppColors.textPrimary,
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                    fontSize: 12.5,
-                  ),
-                  onSelected: (_) {
-                    setState(() => _selectedCity = city);
-                    _loadKosts();
-                  },
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 8),
-
-          // Kost Type + Facility + Reset Row
+          // Compact Action Filter Bar: Lokasi, Tipe (kontekstual), Fasilitas, Reset
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -1734,6 +2201,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                               : 'LONG_TERM';
                           _selectedDailySubType = 'Semua';
                           _selectedCity = 'Semua Kota';
+                          _selectedDistrict = 'Semua Area';
                           _selectedType = 'Semua';
                           _selectedFacility = null;
                           _minPrice = null;
@@ -1744,76 +2212,121 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       },
                     ),
                   ),
-                // Gender Type Segmented Pills (hanya untuk hunian jangka panjang)
-                if (_stayDurationMode != 'HUNIAN_HARIAN')
-                  ..._kostTypes.map((type) {
-                  final isSelected = _selectedType == type;
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: FilterChip(
-                      label: Text(
-                        type == 'Semua' ? 'Semua Tipe' : 'Kost $type',
-                      ),
-                      selected: isSelected,
-                      showCheckmark: false,
-                      selectedColor: AppColors.lightGreenBg,
-                      backgroundColor: Colors.white,
-                      side: BorderSide(
-                        color: isSelected
-                            ? AppColors.primaryGreen
-                            : const Color(0xFFE2E8F0),
-                      ),
-                      shape: const StadiumBorder(),
-                      labelStyle: TextStyle(
-                        color: isSelected
-                            ? AppColors.darkGreen
-                            : Colors.grey.shade800,
-                        fontWeight:
-                            isSelected ? FontWeight.w700 : FontWeight.w500,
-                        fontSize: 12,
-                      ),
-                      onSelected: (_) {
-                        setState(() => _selectedType = type);
-                        _loadKosts();
-                      },
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: ActionChip(
+                    avatar: Icon(
+                      Icons.location_on_rounded,
+                      size: 15,
+                      color: _selectedCity != 'Semua Kota'
+                          ? Colors.white
+                          : AppColors.primaryGreen,
                     ),
-                  );
-                }),
-                const SizedBox(width: 2),
-                // Facility chips
-                ..._facilityChips.map((fac) {
-                  final isSelected = _selectedFacility == fac;
-                  return Padding(
+                    label: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(_locationPillLabel),
+                        const SizedBox(width: 2),
+                        const Icon(Icons.keyboard_arrow_down_rounded, size: 16),
+                      ],
+                    ),
+                    backgroundColor: _selectedCity != 'Semua Kota'
+                        ? AppColors.primaryGreen
+                        : const Color(0xFFF3F6F9),
+                    side: BorderSide(
+                      color: _selectedCity != 'Semua Kota'
+                          ? AppColors.primaryGreen
+                          : const Color(0xFFE2E8F0),
+                    ),
+                    shape: const StadiumBorder(),
+                    labelStyle: TextStyle(
+                      color: _selectedCity != 'Semua Kota'
+                          ? Colors.white
+                          : AppColors.textPrimary,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12.5,
+                    ),
+                    onPressed: _showLocationPickerSheet,
+                  ),
+                ),
+                if (_showKostTypeFilter)
+                  Padding(
                     padding: const EdgeInsets.only(right: 6),
-                    child: FilterChip(
-                      label: Text(fac),
-                      selected: isSelected,
-                      showCheckmark: false,
-                      selectedColor: AppColors.lightGreenBg,
-                      backgroundColor: Colors.white,
-                      side: BorderSide(
-                        color: isSelected
-                            ? AppColors.primaryGreen
-                            : const Color(0xFFE2E8F0),
-                      ),
-                      shape: const StadiumBorder(),
-                      labelStyle: TextStyle(
-                        color: isSelected
+                    child: ActionChip(
+                      avatar: Icon(
+                        Icons.people_alt_outlined,
+                        size: 15,
+                        color: _selectedType != 'Semua'
                             ? AppColors.darkGreen
                             : Colors.grey.shade700,
-                        fontWeight:
-                            isSelected ? FontWeight.w700 : FontWeight.w500,
-                        fontSize: 12,
                       ),
-                      onSelected: (_) {
-                        setState(() {
-                          _selectedFacility = isSelected ? null : fac;
-                        });
-                        _loadKosts();
-                      },
+                      label: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            _selectedType == 'Semua'
+                                ? 'Semua Tipe'
+                                : 'Tipe: $_selectedType',
+                          ),
+                          const SizedBox(width: 2),
+                          const Icon(Icons.keyboard_arrow_down_rounded,
+                              size: 16),
+                        ],
+                      ),
+                      backgroundColor: _selectedType != 'Semua'
+                          ? AppColors.lightGreenBg
+                          : Colors.white,
+                      side: BorderSide(
+                        color: _selectedType != 'Semua'
+                            ? AppColors.primaryGreen
+                            : const Color(0xFFE2E8F0),
+                      ),
+                      shape: const StadiumBorder(),
+                      labelStyle: TextStyle(
+                        color: _selectedType != 'Semua'
+                            ? AppColors.darkGreen
+                            : AppColors.textPrimary,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12.5,
+                      ),
+                      onPressed: _showTypePickerSheet,
                     ),
-                  );
-                }),
+                  ),
+                if (_facilityChips.isNotEmpty)
+                  ActionChip(
+                    avatar: Icon(
+                      Icons.tune_rounded,
+                      size: 15,
+                      color: _selectedFacility != null
+                          ? AppColors.darkGreen
+                          : Colors.grey.shade700,
+                    ),
+                    label: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(_selectedFacility ?? 'Fasilitas'),
+                        const SizedBox(width: 2),
+                        const Icon(Icons.keyboard_arrow_down_rounded, size: 16),
+                      ],
+                    ),
+                    backgroundColor: _selectedFacility != null
+                        ? AppColors.lightGreenBg
+                        : Colors.white,
+                    side: BorderSide(
+                      color: _selectedFacility != null
+                          ? AppColors.primaryGreen
+                          : const Color(0xFFE2E8F0),
+                    ),
+                    shape: const StadiumBorder(),
+                    labelStyle: TextStyle(
+                      color: _selectedFacility != null
+                          ? AppColors.darkGreen
+                          : AppColors.textPrimary,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12.5,
+                    ),
+                    onPressed: _showFacilityPickerSheet,
+                  ),
               ],
             ),
           ),
@@ -1854,57 +2367,155 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
               child: Column(
                 children: [
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF1BAA56), Color(0xFF0A6832)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Row(
-                      children: [
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                  Builder(
+                    builder: (context) {
+                      final isDaily = _stayDurationMode == 'HUNIAN_HARIAN';
+                      final gradColors = isDaily
+                          ? const [Color(0xFF0284C7), Color(0xFF0369A1)]
+                          : const [Color(0xFF1BAA56), Color(0xFF0A6832)];
+                      final blendColor = isDaily
+                          ? const Color(0xFF0375B4)
+                          : const Color(0xFF0E7D3C);
+                      final shadowColor = isDaily
+                          ? const Color(0xFF0284C7)
+                          : const Color(0xFF1BAA56);
+
+                      return Container(
+                        width: double.infinity,
+                        clipBehavior: Clip.antiAlias,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: gradColors,
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: shadowColor.withOpacity(0.24),
+                              blurRadius: 14,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        child: IntrinsicHeight(
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              Text(
-                                'Promo Anak Kost Spesial!',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 16,
+                              Expanded(
+                                child: Padding(
+                                  padding:
+                                      const EdgeInsets.fromLTRB(16, 14, 12, 14),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 3,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withOpacity(0.2),
+                                          borderRadius:
+                                              BorderRadius.circular(20),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              isDaily
+                                                  ? Icons.family_restroom_rounded
+                                                  : Icons.local_offer_rounded,
+                                              size: 12,
+                                              color: Colors.white,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              isDaily
+                                                  ? 'LIBURAN KELUARGA'
+                                                  : 'DISKON S/D 20%',
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 10.5,
+                                                letterSpacing: 0.4,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        isDaily
+                                            ? 'Staycation Keluarga Nyaman!'
+                                            : 'Promo Anak Kost Spesial!',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 16,
+                                          height: 1.2,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 5),
+                                      Text(
+                                        isDaily
+                                            ? 'Villa & homestay hangat untuk keluarga, lengkap & siap huni per malam.'
+                                            : 'Potongan sewa bulan pertama di hunian pilihan terverifikasi.',
+                                        style: TextStyle(
+                                          color: Colors.white.withOpacity(0.9),
+                                          fontSize: 12,
+                                          height: 1.35,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
-                              SizedBox(height: 4),
-                              Text(
-                                'Diskon sewa bulan pertama s/d 20% di kost pilihan terverifikasi.',
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 12,
+                              SizedBox(
+                                width: 118,
+                                child: Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    Image.asset(
+                                      isDaily
+                                          ? 'assets/images/promo_hunian_harian.jpg'
+                                          : 'assets/images/promo_anak_kost.jpg',
+                                      fit: BoxFit.cover,
+                                      alignment: Alignment.topCenter,
+                                      errorBuilder: (_, __, ___) => Container(
+                                        color: Colors.white.withOpacity(0.14),
+                                        child: Icon(
+                                          isDaily
+                                              ? Icons.villa_rounded
+                                              : Icons.local_offer_rounded,
+                                          color: Colors.white,
+                                          size: 32,
+                                        ),
+                                      ),
+                                    ),
+                                    Container(
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          colors: [
+                                            blendColor.withOpacity(0.55),
+                                            Colors.transparent,
+                                          ],
+                                          begin: Alignment.centerLeft,
+                                          end: Alignment.centerRight,
+                                          stops: const [0.0, 0.35],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.18),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.local_offer_rounded,
-                            color: Colors.white,
-                            size: 26,
-                          ),
-                        ),
-                      ],
-                    ),
+                      );
+                    },
                   ),
                   const SizedBox(height: 14),
                   Row(
@@ -1947,6 +2558,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                             DropdownMenuItem(
                               value: 'rating_desc',
                               child: Text('Rating Tertinggi'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'newest',
+                              child: Text('Terbaru'),
                             ),
                           ],
                           onChanged: (val) {
@@ -2031,7 +2646,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                     ),
                     const SizedBox(height: 10),
                     const Text(
-                      'Tidak ada kost yang sesuai filter',
+                      'Tidak ada properti yang sesuai filter',
                       style: TextStyle(
                         fontWeight: FontWeight.w700,
                         fontSize: 15,
@@ -2043,6 +2658,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                         setState(() {
                           _searchCtrl.clear();
                           _selectedCity = 'Semua Kota';
+                          _selectedDistrict = 'Semua Area';
                           _selectedType = 'Semua';
                           _selectedFacility = null;
                           _sortBy = 'recommended';
@@ -2706,14 +3322,149 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Text(
-                    b.kost?.name ?? 'Kost #${b.kostId}',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 15,
+                  InkWell(
+                    onTap: b.kost == null
+                        ? null
+                        : () => _openKostDetail(b.kost!),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (b.kost != null)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 7,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: b.kost!.isDailyStay
+                                        ? const Color(0xFFE0F2FE)
+                                        : AppColors.lightGreenBg,
+                                    borderRadius: BorderRadius.circular(5),
+                                  ),
+                                  child: Text(
+                                    b.kost!.categoryLabel,
+                                    style: TextStyle(
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: b.kost!.isDailyStay
+                                          ? const Color(0xFF0369A1)
+                                          : AppColors.darkGreen,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    '${b.kost!.district}, ${b.kost!.city}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      color: Colors.grey.shade600,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                b.kost?.name ?? 'Properti #${b.kostId}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 15,
+                                ),
+                              ),
+                            ),
+                            if (b.kost != null)
+                              Icon(
+                                Icons.chevron_right_rounded,
+                                size: 18,
+                                color: Colors.grey.shade500,
+                              ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  if (b.kost != null &&
+                      b.kost!.ownerName.trim().isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    InkWell(
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => OwnerProfileScreen(
+                              ownerId: b.kost!.ownerId,
+                              initialOwnerName: b.kost!.ownerName,
+                              sourceKost: b.kost,
+                            ),
+                          ),
+                        );
+                      },
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.grey.shade200),
+                        ),
+                        child: Row(
+                          children: [
+                            const CircleAvatar(
+                              radius: 12,
+                              backgroundColor: AppColors.lightGreenBg,
+                              child: Icon(
+                                Icons.person_rounded,
+                                size: 14,
+                                color: AppColors.primaryGreen,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Pemilik: ${b.kost!.ownerName}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                            ),
+                            const Text(
+                              'Lihat Profil',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.primaryGreen,
+                              ),
+                            ),
+                            const SizedBox(width: 2),
+                            const Icon(
+                              Icons.chevron_right_rounded,
+                              size: 16,
+                              color: AppColors.primaryGreen,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 6),
                   Text(
                     'Pengaju: ${b.tenantName} (${b.tenantPhone})',
                     style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
@@ -2762,11 +3513,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                     ],
                   ),
                   if (b.kost != null ||
-                      (b.status != 'DIBATALKAN' && b.status != 'DITOLAK')) ...[
+                      (b.status != 'DIBATALKAN' &&
+                          b.status != 'DITOLAK' &&
+                          b.paymentStatus != 'PAID')) ...[
                     const SizedBox(height: 12),
                     Row(
                       children: [
-                        if (b.status != 'DIBATALKAN' && b.status != 'DITOLAK')
+                        if (b.status != 'DIBATALKAN' &&
+                            b.status != 'DITOLAK' &&
+                            b.paymentStatus != 'PAID')
                           Expanded(
                             child: OutlinedButton.icon(
                               style: OutlinedButton.styleFrom(
@@ -2783,6 +3538,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                           ),
                         if (b.status != 'DIBATALKAN' &&
                             b.status != 'DITOLAK' &&
+                            b.paymentStatus != 'PAID' &&
                             b.kost != null)
                           const SizedBox(width: 10),
                         if (b.kost != null)
@@ -2808,6 +3564,129 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                           ),
                       ],
                     ),
+                  ],
+                  if (b.isDirectBooking) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: AppColors.cardBorder),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Booking ${b.durationCount} ${b.durationUnit == 'DAY' ? 'Hari' : 'Bulan'} • ${formatRupiah(b.totalAmount)}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12.5,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            b.escrowStatus == 'HELD'
+                                ? 'Escrow: Dana ditahan aman hingga konfirmasi check-in'
+                                : b.escrowStatus == 'RELEASED'
+                                    ? 'Escrow: Check-in terkonfirmasi, dana diteruskan ke pemilik'
+                                    : b.escrowStatus == 'DISPUTED'
+                                        ? 'Escrow: Sengketa dilaporkan, menunggu review Admin'
+                                        : 'Pembayaran: ${b.paymentStatus}',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                              color: b.escrowStatus == 'DISPUTED'
+                                  ? AppColors.discountRed
+                                  : AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (b.paymentStatus == 'UNPAID' &&
+                        b.status != 'DIBATALKAN' &&
+                        (b.paymentUrl ?? '').isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primaryGreen,
+                                foregroundColor: Colors.white,
+                              ),
+                              onPressed: () async {
+                                await Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        DirectBookingSnapWebViewScreen(
+                                      paymentUrl: b.paymentUrl!,
+                                      title: 'Pembayaran Booking',
+                                    ),
+                                  ),
+                                );
+                                await ApiService.syncDirectBookingPayment(b.id);
+                                await _loadBookings();
+                              },
+                              child: const Text(
+                                'Bayar Sekarang',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          OutlinedButton(
+                            onPressed: () async {
+                              await ApiService.syncDirectBookingPayment(b.id);
+                              await _loadBookings();
+                            },
+                            child: const Text('Cek Status'),
+                          ),
+                        ],
+                      ),
+                    ],
+                    if (b.paymentStatus == 'PAID' &&
+                        b.escrowStatus == 'HELD') ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primaryGreen,
+                                foregroundColor: Colors.white,
+                              ),
+                              onPressed: () => _confirmDirectCheckIn(b),
+                              child: const Text(
+                                'Konfirmasi Check-In',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12.5,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.discountRed,
+                              side: BorderSide(color: Colors.red.shade300),
+                            ),
+                            onPressed: () => _reportBookingIssue(b),
+                            child: const Text(
+                              'Laporkan',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12.5,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                   if (b.status == 'DISETUJUI' ||
                       b.status == 'APPROVED' ||
@@ -2835,9 +3714,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                           );
                         },
                         icon: const Icon(Icons.groups_rounded, size: 18),
-                        label: const Text(
-                          'Grup Penghuni Kost',
-                          style: TextStyle(fontWeight: FontWeight.w700),
+                        label: Text(
+                          'Grup ${b.kost?.categoryLabel ?? 'Properti'}',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
                         ),
                       ),
                     ),
@@ -2849,6 +3728,114 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         },
       ),
     );
+  }
+
+  Future<void> _confirmDirectCheckIn(Booking booking) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text(
+          'Konfirmasi Check-In?',
+          style: TextStyle(fontWeight: FontWeight.w800),
+        ),
+        content: const Text(
+          'Pastikan Anda sudah tiba dan kondisi kamar sesuai. Dana Escrow akan langsung diteruskan ke pemilik.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primaryGreen,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Ya, Sudah Sesuai'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await ApiService.confirmBookingCheckIn(booking.id);
+      await AuthService.verifyActiveSession();
+      await _loadBookings();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.primaryGreen,
+          content: Text('Check-in terkonfirmasi! Selamat menempati hunian Anda.'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.discountRed,
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
+    }
+  }
+
+  Future<void> _reportBookingIssue(Booking booking) async {
+    final reasonCtrl = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text(
+          'Laporkan Kendala Check-In',
+          style: TextStyle(fontWeight: FontWeight.w800),
+        ),
+        content: TextField(
+          controller: reasonCtrl,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            hintText: 'Jelaskan kendala (misal: kamar tidak sesuai / fiktif)...',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.discountRed,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, reasonCtrl.text.trim()),
+            child: const Text('Kirim Laporan'),
+          ),
+        ],
+      ),
+    );
+    reasonCtrl.dispose();
+    if (reason == null || reason.isEmpty) return;
+    try {
+      await ApiService.reportBookingDispute(booking.id, reason);
+      await _loadBookings();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppColors.warningOrange,
+          content: Text(
+            'Laporan terkirim. Dana Escrow ditahan untuk investigasi Admin.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.discountRed,
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
+    }
   }
 
   Future<void> _confirmCancelBooking(Booking booking) async {

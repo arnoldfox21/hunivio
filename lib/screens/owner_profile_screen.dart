@@ -302,6 +302,7 @@ class _OwnerProfileScreenState extends State<OwnerProfileScreen>
                                 maxWidth: 1400,
                                 imageQuality: 82,
                               );
+                              if (!ctx.mounted) return;
                               if (picked != null) {
                                 setModalState(() {
                                   pickedImage = File(picked.path);
@@ -393,6 +394,7 @@ class _OwnerProfileScreenState extends State<OwnerProfileScreen>
         ),
       ),
     );
+    contentCtrl.dispose();
   }
 
   Future<void> _confirmDeletePost(OwnerPost post) async {

@@ -77,12 +77,14 @@ class _KostGroupChatScreenState extends State<KostGroupChatScreen> {
   }
 
   void _initSocket() {
-    if (_userId <= 0) return;
+    final token = ApiService.authToken;
+    if (_userId <= 0 || token == null || token.isEmpty) return;
     try {
       final socket = io.io(
         ApiService.socketBaseUrl,
         io.OptionBuilder()
             .setTransports(['websocket'])
+            .setAuth({'token': token})
             .disableAutoConnect()
             .build(),
       );
@@ -200,17 +202,32 @@ class _KostGroupChatScreenState extends State<KostGroupChatScreen> {
     }
 
     setState(() => _sending = true);
-    _msgCtrl.clear();
 
     try {
       if (_socket != null && _socketConnected) {
-        _socket!.emit('sendGroupMessage', {
-          'kostId': widget.kostId,
-          'senderId': _userId,
-          'senderName': _userName,
-          'senderAvatar': _userAvatar,
-          'message': text,
-        });
+        _socket!.emitWithAck(
+          'sendGroupMessage',
+          {
+            'kostId': widget.kostId,
+            'senderId': _userId,
+            'senderName': _userName,
+            'senderAvatar': _userAvatar,
+            'message': text,
+          },
+          ack: (dynamic ackData) {
+            if (!mounted) return;
+            setState(() => _sending = false);
+            if (ackData != null) {
+              _msgCtrl.clear();
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Gagal mengirim pesan grup. Coba lagi.'),
+                ),
+              );
+            }
+          },
+        );
       } else {
         final saved = await ApiService.sendGroupMessageRest(
           kostId: widget.kostId,
@@ -219,6 +236,7 @@ class _KostGroupChatScreenState extends State<KostGroupChatScreen> {
           senderAvatar: _userAvatar,
           message: text,
         );
+        if (mounted) _msgCtrl.clear();
         if (mounted && !_messages.any((m) => m.id == saved.id)) {
           setState(() => _messages.add(saved));
           _scrollToBottom();
@@ -320,11 +338,13 @@ class _KostGroupChatScreenState extends State<KostGroupChatScreen> {
           adminId: _userId,
           query: query,
         );
+        if (!mounted) return;
         setModalState(() {
           candidates = res;
           loading = false;
         });
       } catch (e) {
+        if (!mounted) return;
         setModalState(() {
           error = e.toString();
           loading = false;
@@ -533,6 +553,7 @@ class _KostGroupChatScreenState extends State<KostGroupChatScreen> {
         );
       },
     );
+    searchCtrl.dispose();
   }
 
   void _openGroupInfoSheet() {

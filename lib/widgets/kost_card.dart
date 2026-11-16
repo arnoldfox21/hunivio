@@ -102,8 +102,51 @@ class KostCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                // Top left verified badge
-                if (kost.isSinggahsini)
+                // Top left verified / boosted badge
+                if (kost.isBoosted)
+                  Positioned(
+                    top: 12,
+                    left: 12,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFF59E0B), Color(0xFFD97706)],
+                        ),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.22),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.bolt_rounded,
+                            color: Colors.white,
+                            size: 14,
+                          ),
+                          SizedBox(width: 3),
+                          Text(
+                            'Unggulan',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else if (kost.rating >= 4.5 && kost.reviewCount >= 3)
                   Positioned(
                     top: 12,
                     left: 12,
@@ -129,13 +172,13 @@ class KostCard extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(
-                            Icons.verified_rounded,
+                            Icons.star_rounded,
                             color: Colors.white,
-                            size: 13,
+                            size: 14,
                           ),
                           SizedBox(width: 4),
                           Text(
-                            'HuniVio Pilihan',
+                            'Top Rated',
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 11,

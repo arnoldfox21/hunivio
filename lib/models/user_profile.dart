@@ -16,6 +16,11 @@ class UserProfile {
   final bool onboardingCompleted;
   final String preferredCategory;
   final bool hasPassword;
+  final int creditBalance;
+  final int payoutBalance;
+  final int pointsBalance;
+  final int totalPointsEarned;
+  final String loyaltyLevel;
   final String lastLoginAt;
   final String createdAt;
 
@@ -37,6 +42,11 @@ class UserProfile {
     this.onboardingCompleted = true,
     this.preferredCategory = '',
     this.hasPassword = false,
+    this.creditBalance = 0,
+    this.payoutBalance = 0,
+    this.pointsBalance = 0,
+    this.totalPointsEarned = 0,
+    this.loyaltyLevel = 'Bronze',
     required this.lastLoginAt,
     required this.createdAt,
   });
@@ -62,6 +72,19 @@ class UserProfile {
           : true,
       preferredCategory: json['preferredCategory']?.toString() ?? '',
       hasPassword: json['hasPassword'] == true,
+      creditBalance: json['creditBalance'] is int
+          ? json['creditBalance'] as int
+          : int.tryParse('${json['creditBalance'] ?? 0}') ?? 0,
+      payoutBalance: json['payoutBalance'] is int
+          ? json['payoutBalance'] as int
+          : int.tryParse('${json['payoutBalance'] ?? 0}') ?? 0,
+      pointsBalance: json['pointsBalance'] is int
+          ? json['pointsBalance'] as int
+          : int.tryParse('${json['pointsBalance'] ?? 0}') ?? 0,
+      totalPointsEarned: json['totalPointsEarned'] is int
+          ? json['totalPointsEarned'] as int
+          : int.tryParse('${json['totalPointsEarned'] ?? 0}') ?? 0,
+      loyaltyLevel: json['loyaltyLevel']?.toString() ?? 'Bronze',
       lastLoginAt: json['lastLoginAt']?.toString() ?? '',
       createdAt: json['createdAt']?.toString() ?? '',
     );
@@ -86,6 +109,11 @@ class UserProfile {
       'onboardingCompleted': onboardingCompleted,
       'preferredCategory': preferredCategory,
       'hasPassword': hasPassword,
+      'creditBalance': creditBalance,
+      'payoutBalance': payoutBalance,
+      'pointsBalance': pointsBalance,
+      'totalPointsEarned': totalPointsEarned,
+      'loyaltyLevel': loyaltyLevel,
       'lastLoginAt': lastLoginAt,
       'createdAt': createdAt,
     };
@@ -96,6 +124,35 @@ class UserProfile {
     if (clean.isNotEmpty) return '@$clean';
     final emailPrefix = email.split('@').first.trim();
     return emailPrefix.isNotEmpty ? '@$emailPrefix' : '@hunivio_user';
+  }
+
+  String get computedLevel {
+    if (totalPointsEarned >= 700) return 'Platinum';
+    if (totalPointsEarned >= 300) return 'Gold';
+    if (totalPointsEarned >= 100) return 'Silver';
+    return 'Bronze';
+  }
+
+  int get nextLevelTarget {
+    if (totalPointsEarned >= 700) return 700;
+    if (totalPointsEarned >= 300) return 700;
+    if (totalPointsEarned >= 100) return 300;
+    return 100;
+  }
+
+  String? get nextLevelName {
+    if (totalPointsEarned >= 700) return null;
+    if (totalPointsEarned >= 300) return 'Platinum';
+    if (totalPointsEarned >= 100) return 'Gold';
+    return 'Silver';
+  }
+
+  double get levelProgress {
+    if (totalPointsEarned >= 700) return 1.0;
+    final min = totalPointsEarned >= 300
+        ? 300
+        : (totalPointsEarned >= 100 ? 100 : 0);
+    return ((totalPointsEarned - min) / (nextLevelTarget - min)).clamp(0.0, 1.0);
   }
 
   String get normalizedRole {

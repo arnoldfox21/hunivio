@@ -229,6 +229,8 @@ class NotificationService {
   }
 
   static void connectUserSocket(int userId) {
+    final token = ApiService.authToken;
+    if (token == null || token.isEmpty) return;
     if (_connectedUserId == userId && _userSocket?.connected == true) {
       return;
     }
@@ -240,6 +242,7 @@ class NotificationService {
         ApiService.socketBaseUrl,
         io.OptionBuilder()
             .setTransports(['websocket'])
+            .setAuth({'token': token})
             .disableAutoConnect()
             .build(),
       );

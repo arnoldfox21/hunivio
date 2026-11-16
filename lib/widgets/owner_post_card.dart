@@ -217,6 +217,7 @@ class OwnerPostCard extends StatelessWidget {
                     child: Image.network(
                       post.imageUrl!,
                       width: double.infinity,
+                      cacheWidth: 900,
                       fit: isDetailView ? BoxFit.fitWidth : BoxFit.cover,
                       loadingBuilder: (context, child, progress) {
                         if (progress == null) return child;

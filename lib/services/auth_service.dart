@@ -239,6 +239,7 @@ class AuthService {
       accessToken: result.accessToken,
       authMethod: 'google',
     );
+    ApiService.onSessionInvalidated ??= (_) => forceSignOut();
     currentUserNotifier.value = result.user;
     return result;
   }

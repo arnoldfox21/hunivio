@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
 
 import '../models/user_profile.dart';
+import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import '../utils/formatters.dart';
 import '../widgets/animated_vectors.dart';
+import '../widgets/level_badge_icon.dart';
 import 'edit_profile_screen.dart';
 import 'email_login_screen.dart';
 import 'manage_properties_screen.dart';
 import 'manage_users_screen.dart';
 import 'onboarding_wizard_screen.dart';
 import 'owner_profile_screen.dart';
+import 'owner_wallet_screen.dart';
 
 class AuthProfileTab extends StatefulWidget {
   const AuthProfileTab({super.key});
@@ -20,6 +23,93 @@ class AuthProfileTab extends StatefulWidget {
 
 class _AuthProfileTabState extends State<AuthProfileTab> {
   bool _loadingGoogle = false;
+
+  Future<void> _openLoyaltyHistorySheet() async {
+    try {
+      final data = await ApiService.fetchMyLoyaltySummary();
+      if (!mounted) return;
+      final txs = (data['transactions'] as List?) ?? const [];
+      await showModalBottomSheet<void>(
+        context: context,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Riwayat Poin HuniVio',
+                  style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  '1 Poin = Rp50 potongan booking • Dapat +1 Poin tiap Rp10.000 booking check-in.',
+                  style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                ),
+                const SizedBox(height: 12),
+                if (txs.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Center(
+                      child: Text(
+                        'Belum ada riwayat poin. Selesaikan booking langsung untuk mulai mengumpulkan poin!',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: AppColors.textSecondary),
+                      ),
+                    ),
+                  )
+                else
+                  Flexible(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: txs.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (_, i) {
+                        final row = Map<String, dynamic>.from(txs[i] as Map);
+                        final type = (row['type'] ?? 'EARN').toString();
+                        final pts = row['points'] ?? 0;
+                        final isEarn = type == 'EARN' || type == 'REFUND';
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(
+                            row['description']?.toString() ?? 'Poin HuniVio',
+                            style: const TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          trailing: Text(
+                            '${isEarn ? '+' : '-'}$pts Poin',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              color: isEarn
+                                  ? AppColors.primaryGreen
+                                  : AppColors.discountRed,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.discountRed,
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
+    }
+  }
 
   Future<void> _handleGoogleAuth({required bool isRegisterFlow}) async {
     setState(() => _loadingGoogle = true);
@@ -287,6 +377,7 @@ class _AuthProfileTabState extends State<AuthProfileTab> {
                                   ),
                                 );
                               } catch (e) {
+                                if (!ctx.mounted) return;
                                 setModalState(() {
                                   saving = false;
                                   errorMsg = e
@@ -1062,6 +1153,184 @@ class _AuthProfileTabState extends State<AuthProfileTab> {
           if (user.canManageKost) ...[
             const SizedBox(height: 12),
 
+            // Saldo Kredit Pemilik Card
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppColors.cardBorder),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFE8F8EE), Color(0xFFD1FAE5)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.account_balance_wallet_rounded,
+                        color: AppColors.primaryGreen,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Saldo Kredit HuniVio',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            formatRupiah(user.creditBalance),
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primaryGreen,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => OwnerWalletScreen(user: user),
+                          ),
+                        );
+                      },
+                      child: const Text(
+                        'Top Up',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // Level & Poin HuniVio Card
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppColors.cardBorder),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        LevelBadgeIcon(level: user.computedLevel, size: 46),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Text(
+                                    'Level ${user.computedLevel}',
+                                    style: const TextStyle(
+                                      fontSize: 15.5,
+                                      fontWeight: FontWeight.w800,
+                                      color: AppColors.textPrimary,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  LevelPillBadge(
+                                    level: user.computedLevel,
+                                    compact: true,
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${user.pointsBalance} Poin aktif • ${user.totalPointsEarned} Total XP',
+                                style: const TextStyle(
+                                  fontSize: 12.5,
+                                  color: AppColors.textSecondary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: _openLoyaltyHistorySheet,
+                          child: const Text(
+                            'Riwayat',
+                            style: TextStyle(
+                              color: AppColors.primaryGreen,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(999),
+                      child: LinearProgressIndicator(
+                        value: user.levelProgress,
+                        minHeight: 7,
+                        backgroundColor: AppColors.surfaceBg,
+                        color: LevelPillBadge.primaryColorFor(user.computedLevel),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      user.nextLevelName == null
+                          ? 'Anda sudah mencapai level tertinggi Platinum!'
+                          : 'Kumpulkan ${user.nextLevelTarget - user.totalPointsEarned} XP lagi dari booking langsung untuk naik ke ${user.nextLevelName}.',
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
             // Kelola Properti Card (hanya untuk Pemilik Properti, Staff, dan Administrator)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1166,7 +1435,7 @@ class _AuthProfileTabState extends State<AuthProfileTab> {
             ),
           ],
 
-          if (user.isAdministrator) ...[
+          if (user.canApproveProperties) ...[
             const SizedBox(height: 12),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1180,16 +1449,20 @@ class _AuthProfileTabState extends State<AuthProfileTab> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Panel Administrator',
-                      style: TextStyle(
+                    Text(
+                      user.isAdministrator
+                          ? 'Panel Administrator'
+                          : 'Panel Staff',
+                      style: const TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Kelola akun pengguna, ubah role, atau hapus akun.',
+                      user.isAdministrator
+                          ? 'Kelola akun pengguna, ubah role, atau ban akun.'
+                          : 'Pantau akun pengguna, verifikasi, dan blokir (ban) pelanggar.',
                       style: TextStyle(
                         fontSize: 12.5,
                         color: Colors.grey.shade600,

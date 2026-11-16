@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import '../models/kost.dart';
 import '../models/booking.dart';
 import '../models/user_profile.dart';
@@ -7,6 +8,7 @@ import '../models/chat_message.dart';
 import '../models/kost_group.dart';
 import '../models/review.dart';
 import '../models/owner_post.dart';
+import '../models/wallet.dart';
 
 class PaginatedKostsResult {
   final List<Kost> data;
@@ -28,7 +30,7 @@ class ApiService {
   static const String localBaseUrl = 'http://192.168.18.12:3001/api';
   static const String onlineBaseUrl = 'https://hunivio-api.vercel.app/api';
 
-  static String _baseUrl = localBaseUrl;
+  static String _baseUrl = kReleaseMode ? onlineBaseUrl : localBaseUrl;
   static String? _authToken;
   static void Function(String? reason)? onSessionInvalidated;
 
@@ -76,6 +78,7 @@ class ApiService {
     String? unitType,
     String? type,
     String? city,
+    String? district,
     String? facility,
     int? minPrice,
     int? maxPrice,
@@ -92,6 +95,7 @@ class ApiService {
       unitType: unitType,
       type: type,
       city: city,
+      district: district,
       facility: facility,
       minPrice: minPrice,
       maxPrice: maxPrice,
@@ -111,6 +115,7 @@ class ApiService {
     String? unitType,
     String? type,
     String? city,
+    String? district,
     String? facility,
     int? minPrice,
     int? maxPrice,
@@ -140,6 +145,9 @@ class ApiService {
     }
     if (city != null && city.isNotEmpty && city != 'Semua Kota') {
       queryParams['city'] = city;
+    }
+    if (district != null && district.isNotEmpty && district != 'Semua Area') {
+      queryParams['district'] = district;
     }
     if (facility != null && facility.isNotEmpty) {
       queryParams['facility'] = facility;
@@ -222,6 +230,7 @@ class ApiService {
     String? unitType,
     String? type,
     String? city,
+    String? district,
   }) async {
     final queryParams = <String, String>{};
     if (propertyCategory != null &&
@@ -232,14 +241,17 @@ class ApiService {
     if (unitType != null && unitType.isNotEmpty && unitType != 'Semua') {
       queryParams['unitType'] = unitType;
     }
-    if (unitType != null && unitType.isNotEmpty && unitType != 'Semua') {
-      queryParams['unitType'] = unitType;
-    }
     if (type != null && type.isNotEmpty && type != 'Semua') {
       queryParams['type'] = type;
     }
     if (city != null && city.isNotEmpty && city != 'Semua Kota') {
       queryParams['city'] = city;
+    }
+    if (district != null && district.isNotEmpty && district != 'Semua Area') {
+      queryParams['district'] = district;
+    }
+    if (district != null && district.isNotEmpty && district != 'Semua Area') {
+      queryParams['district'] = district;
     }
 
     final uri = Uri.parse('$_baseUrl/kosts/map-points').replace(
@@ -310,6 +322,30 @@ class ApiService {
       return {'cities': [], 'types': [], 'facilities': []};
     } catch (_) {
       return {'cities': [], 'types': [], 'facilities': []};
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<List<Map<String, dynamic>>> fetchCityFilterStats() async {
+    final uri = Uri.parse('$_baseUrl/kosts/filters');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 5);
+    try {
+      final request = _attachAuth(await client.getUrl(uri));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final decoded = jsonDecode(body) as Map<String, dynamic>;
+        final rawStats = decoded['cityStats'] as List<dynamic>? ?? [];
+        return rawStats
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      }
+      return [];
+    } catch (_) {
+      return [];
     } finally {
       client.close();
     }
@@ -407,6 +443,7 @@ class ApiService {
         final decoded = jsonDecode(body) as Map<String, dynamic>;
         return Kost.fromJson(decoded);
       } else {
+        _handleAuthRejectionIfNeeded(response.statusCode, body);
         throw Exception('Gagal memperbarui status favorit');
       }
     } finally {
@@ -428,6 +465,7 @@ class ApiService {
         final decoded = jsonDecode(body) as Map<String, dynamic>;
         return Kost.fromJson(decoded);
       } else {
+        _handleAuthRejectionIfNeeded(response.statusCode, body);
         throw Exception('Gagal menambah kost. Silakan coba lagi.');
       }
     } finally {
@@ -468,6 +506,7 @@ class ApiService {
         final decoded = jsonDecode(body) as Map<String, dynamic>;
         return Booking.fromJson(decoded);
       } else {
+        _handleAuthRejectionIfNeeded(response.statusCode, body);
         String msg = 'Gagal membuat pengajuan survei. Silakan coba lagi.';
         try {
           final err = jsonDecode(body);
@@ -507,6 +546,7 @@ class ApiService {
             .map((e) => Booking.fromJson(e as Map<String, dynamic>))
             .toList();
       } else {
+        _handleAuthRejectionIfNeeded(response.statusCode, body);
         throw Exception('Gagal memuat daftar pengajuan sewa.');
       }
     } finally {
@@ -530,6 +570,7 @@ class ApiService {
       if (response.statusCode >= 200 && response.statusCode < 300) {
         return Booking.fromJson(jsonDecode(body) as Map<String, dynamic>);
       } else {
+        _handleAuthRejectionIfNeeded(response.statusCode, body);
         throw Exception('Gagal memperbarui status pengajuan.');
       }
     } finally {
@@ -559,6 +600,7 @@ class ApiService {
       if (response.statusCode >= 200 && response.statusCode < 300) {
         return Booking.fromJson(jsonDecode(body) as Map<String, dynamic>);
       }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
       String msg = 'Gagal membatalkan pengajuan.';
       try {
         final parsed = jsonDecode(body);
@@ -972,8 +1014,20 @@ class ApiService {
     }
   }
 
-  static Future<List<UserProfile>> fetchUsers() async {
-    final uri = Uri.parse('$_baseUrl/auth/users');
+  static Future<List<UserProfile>> fetchUsers({
+    String? search,
+    String? role,
+    int page = 1,
+    int limit = 20,
+  }) async {
+    final params = <String, String>{
+      'page': page.toString(),
+      'limit': limit.toString(),
+      if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
+      if (role != null && role.trim().isNotEmpty && role != 'SEMUA')
+        'role': role.trim(),
+    };
+    final uri = Uri.parse('$_baseUrl/auth/users').replace(queryParameters: params);
     final client = HttpClient();
     client.connectionTimeout = const Duration(seconds: 6);
     try {
@@ -1077,6 +1131,36 @@ class ApiService {
       } else {
         throw Exception('Gagal memperbarui data kost.');
       }
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<Kost> transferKostOwner({
+    required int kostId,
+    required int targetOwnerId,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/kosts/$kostId/transfer-owner');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 6);
+    try {
+      final request = _attachAuth(await client.patchUrl(uri));
+      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
+      request.add(utf8.encode(jsonEncode({'targetOwnerId': targetOwnerId})));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final decoded = jsonDecode(body) as Map<String, dynamic>;
+        return Kost.fromJson(decoded);
+      }
+      String msg = 'Gagal memindahkan kepemilikan (${response.statusCode})';
+      try {
+        final err = jsonDecode(body);
+        if (err is Map<String, dynamic> && err['message'] != null) {
+          msg = err['message'].toString();
+        }
+      } catch (_) {}
+      throw Exception(msg);
     } finally {
       client.close();
     }
@@ -1862,6 +1946,400 @@ class ApiService {
       }
       _handleAuthRejectionIfNeeded(response.statusCode, body);
       throw Exception('Gagal menghapus komentar.');
+    } finally {
+      client.close();
+    }
+  }
+
+  static String _extractErrorMessage(String body, String fallback) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map && decoded['message'] != null) {
+        final msg = decoded['message'];
+        if (msg is List && msg.isNotEmpty) {
+          return msg.first.toString();
+        }
+        return msg.toString();
+      }
+    } catch (_) {}
+    return fallback;
+  }
+
+  static Future<WalletSummary> fetchWalletSummary() async {
+    final uri = Uri.parse('$_baseUrl/wallet/me');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 8);
+    try {
+      final request = _attachAuth(await client.getUrl(uri));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return WalletSummary.fromJson(
+          jsonDecode(body) as Map<String, dynamic>,
+        );
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      throw Exception(
+        _extractErrorMessage(body, 'Gagal memuat saldo kredit.'),
+      );
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<CreateTopupResult> createWalletTopup(int amount) async {
+    final uri = Uri.parse('$_baseUrl/wallet/topup');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 12);
+    try {
+      final request = _attachAuth(await client.postUrl(uri));
+      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
+      request.add(utf8.encode(jsonEncode({'amount': amount})));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return CreateTopupResult.fromJson(
+          jsonDecode(body) as Map<String, dynamic>,
+        );
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      throw Exception(
+        _extractErrorMessage(body, 'Gagal membuat transaksi top-up.'),
+      );
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<SyncTopupResult> syncWalletTopupStatus(String orderId) async {
+    final uri = Uri.parse('$_baseUrl/wallet/topup/$orderId/sync');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 10);
+    try {
+      final request = _attachAuth(await client.postUrl(uri));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return SyncTopupResult.fromJson(
+          jsonDecode(body) as Map<String, dynamic>,
+        );
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      throw Exception(
+        _extractErrorMessage(body, 'Gagal memeriksa status pembayaran.'),
+      );
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<WalletPricing> fetchWalletPricing() async {
+    final uri = Uri.parse('$_baseUrl/wallet/pricing');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 8);
+    try {
+      final request = await client.getUrl(uri);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return WalletPricing.fromJson(
+          jsonDecode(body) as Map<String, dynamic>,
+        );
+      }
+      throw Exception(
+        _extractErrorMessage(body, 'Gagal memuat daftar tarif kredit.'),
+      );
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<BoostKostResult> boostKost(
+    int kostId,
+    String packageCode,
+  ) async {
+    final uri = Uri.parse('$_baseUrl/wallet/boost/$kostId');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 10);
+    try {
+      final request = _attachAuth(await client.postUrl(uri));
+      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
+      request.add(utf8.encode(jsonEncode({'packageCode': packageCode})));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return BoostKostResult.fromJson(
+          jsonDecode(body) as Map<String, dynamic>,
+        );
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      throw Exception(
+        _extractErrorMessage(body, 'Gagal mengaktifkan boost iklan.'),
+      );
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<Booking> createDirectBooking({
+    required int kostId,
+    required String tenantName,
+    required String tenantPhone,
+    required String startDate,
+    required int durationCount,
+    String notes = '',
+    bool usePoints = false,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/bookings/direct');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 12);
+    try {
+      final request = _attachAuth(await client.postUrl(uri));
+      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
+      request.add(
+        utf8.encode(
+          jsonEncode({
+            'kostId': kostId,
+            'tenantName': tenantName,
+            'tenantPhone': tenantPhone,
+            'startDate': startDate,
+            'durationCount': durationCount,
+            'notes': notes,
+            'usePoints': usePoints,
+          }),
+        ),
+      );
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return Booking.fromJson(jsonDecode(body) as Map<String, dynamic>);
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      throw Exception(
+        _extractErrorMessage(body, 'Gagal membuat booking langsung.'),
+      );
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<Booking> syncDirectBookingPayment(int bookingId) async {
+    final uri = Uri.parse('$_baseUrl/bookings/$bookingId/sync-payment');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 10);
+    try {
+      final request = _attachAuth(await client.postUrl(uri));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return Booking.fromJson(jsonDecode(body) as Map<String, dynamic>);
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      throw Exception(
+        _extractErrorMessage(body, 'Gagal memeriksa status pembayaran.'),
+      );
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<Booking> confirmBookingCheckIn(int bookingId) async {
+    final uri = Uri.parse('$_baseUrl/bookings/$bookingId/confirm-checkin');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 10);
+    try {
+      final request = _attachAuth(await client.postUrl(uri));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return Booking.fromJson(jsonDecode(body) as Map<String, dynamic>);
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      throw Exception(
+        _extractErrorMessage(body, 'Gagal mengonfirmasi check-in.'),
+      );
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<Booking> reportBookingDispute(
+    int bookingId,
+    String reason,
+  ) async {
+    final uri = Uri.parse('$_baseUrl/bookings/$bookingId/dispute');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 10);
+    try {
+      final request = _attachAuth(await client.postUrl(uri));
+      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
+      request.add(utf8.encode(jsonEncode({'reason': reason})));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return Booking.fromJson(jsonDecode(body) as Map<String, dynamic>);
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      throw Exception(
+        _extractErrorMessage(body, 'Gagal melaporkan kendala.'),
+      );
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<Map<String, dynamic>> fetchMyLoyaltySummary() async {
+    final uri = Uri.parse('$_baseUrl/bookings/loyalty/me');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 8);
+    try {
+      final request = _attachAuth(await client.getUrl(uri));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return Map<String, dynamic>.from(jsonDecode(body) as Map);
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      throw Exception(
+        _extractErrorMessage(body, 'Gagal memuat data poin & level.'),
+      );
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<Map<String, dynamic>> createPayoutRequest({
+    required int amount,
+    required String bankName,
+    required String accountNumber,
+    required String accountHolder,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/wallet/payout-requests');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 8);
+    try {
+      final request = _attachAuth(await client.postUrl(uri));
+      request.headers.contentType = ContentType.json;
+      request.write(
+        jsonEncode({
+          'amount': amount,
+          'bankName': bankName,
+          'accountNumber': accountNumber,
+          'accountHolder': accountHolder,
+        }),
+      );
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return Map<String, dynamic>.from(jsonDecode(body) as Map);
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      throw Exception(
+        _extractErrorMessage(body, 'Gagal mengajukan penarikan dana.'),
+      );
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<List<Map<String, dynamic>>> fetchMyPayoutRequests() async {
+    final uri = Uri.parse('$_baseUrl/wallet/payout-requests/me');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 8);
+    try {
+      final request = _attachAuth(await client.getUrl(uri));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final decoded = jsonDecode(body) as List<dynamic>;
+        return decoded
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .toList();
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      throw Exception(
+        _extractErrorMessage(body, 'Gagal memuat riwayat penarikan dana.'),
+      );
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<List<Map<String, dynamic>>> fetchAllPayoutRequests() async {
+    final uri = Uri.parse('$_baseUrl/wallet/payout-requests');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 8);
+    try {
+      final request = _attachAuth(await client.getUrl(uri));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final decoded = jsonDecode(body) as List<dynamic>;
+        return decoded
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .toList();
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      throw Exception(
+        _extractErrorMessage(body, 'Gagal memuat daftar pengajuan withdraw.'),
+      );
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<Map<String, dynamic>> processPayoutRequest({
+    required String requestId,
+    required String action,
+    String? adminNote,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/wallet/payout-requests/$requestId/process');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 8);
+    try {
+      final request = _attachAuth(await client.patchUrl(uri));
+      request.headers.contentType = ContentType.json;
+      request.write(
+        jsonEncode({
+          'action': action,
+          if (adminNote != null && adminNote.trim().isNotEmpty)
+            'adminNote': adminNote.trim(),
+        }),
+      );
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return Map<String, dynamic>.from(jsonDecode(body) as Map);
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      throw Exception(
+        _extractErrorMessage(body, 'Gagal memproses pengajuan withdraw.'),
+      );
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<Map<String, dynamic>> resolveBookingDispute({
+    required String bookingId,
+    required String resolution,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/bookings/$bookingId/resolve-dispute');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 8);
+    try {
+      final request = _attachAuth(await client.postUrl(uri));
+      request.headers.contentType = ContentType.json;
+      request.write(jsonEncode({'resolution': resolution}));
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return Map<String, dynamic>.from(jsonDecode(body) as Map);
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      throw Exception(
+        _extractErrorMessage(body, 'Gagal menyelesaikan sengketa escrow.'),
+      );
     } finally {
       client.close();
     }

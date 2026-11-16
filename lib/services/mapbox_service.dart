@@ -45,6 +45,18 @@ class ReverseGeocodeResult {
   });
 }
 
+class ForwardGeocodeResult {
+  final String title;
+  final String subtitle;
+  final LatLng location;
+
+  const ForwardGeocodeResult({
+    required this.title,
+    required this.subtitle,
+    required this.location,
+  });
+}
+
 class LocationHelper {
   static const Distance _distance = Distance();
 
@@ -167,6 +179,100 @@ class LocationHelper {
         district: district.trim(),
         address: address.trim(),
       );
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<List<ForwardGeocodeResult>> forwardGeocode(
+    String query, {
+    LatLng? proximity,
+  }) async {
+    final trimmed = query.trim();
+    if (trimmed.length < 2) return const [];
+
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 6);
+    try {
+      // 1. Coba Mapbox Geocoding API terlebih dahulu
+      if (MapboxConfig.publicToken.trim().isNotEmpty) {
+        try {
+          final proximityParam = proximity != null
+              ? '&proximity=${proximity.longitude},${proximity.latitude}'
+              : '';
+          final uri = Uri.parse(
+            'https://api.mapbox.com/geocoding/v5/mapbox.places/${Uri.encodeComponent(trimmed)}.json'
+            '?access_token=${MapboxConfig.publicToken}&country=id&language=id&limit=5$proximityParam',
+          );
+          final req = await client.getUrl(uri);
+          final res = await req.close().timeout(const Duration(seconds: 6));
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            final body = await res.transform(utf8.decoder).join();
+            final decoded = jsonDecode(body);
+            if (decoded is Map<String, dynamic>) {
+              final features = decoded['features'] as List<dynamic>? ?? [];
+              final results = <ForwardGeocodeResult>[];
+              for (final raw in features) {
+                if (raw is! Map) continue;
+                final center = raw['center'] as List<dynamic>?;
+                if (center == null || center.length < 2) continue;
+                final lng = (center[0] as num?)?.toDouble();
+                final lat = (center[1] as num?)?.toDouble();
+                if (lat == null || lng == null) continue;
+                final text = (raw['text'] ?? '').toString().trim();
+                final placeName = (raw['place_name'] ?? '').toString().trim();
+                results.add(
+                  ForwardGeocodeResult(
+                    title: text.isNotEmpty ? text : placeName,
+                    subtitle: placeName,
+                    location: LatLng(lat, lng),
+                  ),
+                );
+              }
+              if (results.isNotEmpty) return results;
+            }
+          }
+        } catch (_) {}
+      }
+
+      // 2. Fallback ke Nominatim (OpenStreetMap)
+      try {
+        final nomUri = Uri.parse(
+          'https://nominatim.openstreetmap.org/search?format=jsonv2'
+          '&countrycodes=id&limit=5&accept-language=id&q=${Uri.encodeComponent(trimmed)}',
+        );
+        final req = await client.getUrl(nomUri);
+        req.headers.set('User-Agent', 'HuniVioApp/1.0');
+        final res = await req.close().timeout(const Duration(seconds: 6));
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          final body = await res.transform(utf8.decoder).join();
+          final decoded = jsonDecode(body);
+          if (decoded is List) {
+            final results = <ForwardGeocodeResult>[];
+            for (final item in decoded) {
+              if (item is! Map) continue;
+              final lat = double.tryParse(item['lat']?.toString() ?? '');
+              final lng = double.tryParse(item['lon']?.toString() ?? '');
+              if (lat == null || lng == null) continue;
+              final displayName =
+                  (item['display_name'] ?? '').toString().trim();
+              final name = (item['name'] ?? '').toString().trim();
+              results.add(
+                ForwardGeocodeResult(
+                  title: name.isNotEmpty
+                      ? name
+                      : displayName.split(',').first.trim(),
+                  subtitle: displayName,
+                  location: LatLng(lat, lng),
+                ),
+              );
+            }
+            return results;
+          }
+        }
+      } catch (_) {}
+
+      return const [];
     } finally {
       client.close();
     }

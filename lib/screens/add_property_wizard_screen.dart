@@ -9,6 +9,7 @@ import '../utils/formatters.dart';
 import '../widgets/facility_checkbox_group.dart';
 import '../widgets/location_autocomplete_field.dart';
 import 'kost_location_picker_screen.dart';
+import 'owner_wallet_screen.dart';
 
 class AddPropertyWizardScreen extends StatefulWidget {
   final UserProfile currentUser;
@@ -60,7 +61,6 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
   String _selectedDailyUnitType = 'Villa';
   String _selectedType = 'Campur';
   bool _electricityIncluded = false;
-  bool _isSinggahsini = true;
   bool _submitting = false;
   bool _loadingCurrentGps = false;
   bool _loadingAddress = false;
@@ -246,7 +246,7 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
         'availableRooms': rooms,
         'roomSize': _roomSizeCtrl.text.trim(),
         'electricityIncluded': _isDailyStay ? true : _electricityIncluded,
-        'isSinggahsini': _isSinggahsini,
+        'isSinggahsini': false,
         'isInstantBooking': true,
         'roomFacilities': _selectedRoomFacilities.toList(),
         'publicFacilities': _selectedPublicFacilities.toList(),
@@ -276,10 +276,26 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _submitting = false);
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      final isCreditShortage = msg.toLowerCase().contains('saldo kredit');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: Colors.red.shade700,
-          content: Text('Gagal menyimpan properti: $e'),
+          content: Text(isCreditShortage ? msg : 'Gagal menyimpan properti: $msg'),
+          action: isCreditShortage
+              ? SnackBarAction(
+                  label: 'Top-Up',
+                  textColor: Colors.white,
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            OwnerWalletScreen(user: widget.currentUser),
+                      ),
+                    );
+                  },
+                )
+              : null,
         ),
       );
     }
@@ -770,6 +786,7 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
                             imageQuality: 80,
                             maxWidth: 1280,
                           );
+                          if (!mounted) return;
                           if (files.isNotEmpty) {
                             setState(() => _pickedImages.addAll(files));
                           }
@@ -789,6 +806,7 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
                             imageQuality: 80,
                             maxWidth: 1280,
                           );
+                          if (!mounted) return;
                           if (file != null) {
                             setState(() => _pickedImages.add(file));
                           }
@@ -1038,13 +1056,6 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
               value: _electricityIncluded,
               onChanged: (v) => setState(() => _electricityIncluded = v),
             ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            activeColor: AppColors.primaryGreen,
-            title: const Text('Tandai sebagai HuniVio Pilihan'),
-            value: _isSinggahsini,
-            onChanged: (v) => setState(() => _isSinggahsini = v),
-          ),
           const SizedBox(height: 10),
           Container(
             padding: const EdgeInsets.all(14),

@@ -4,7 +4,9 @@ import '../models/booking.dart';
 import '../models/kost.dart';
 import '../models/review.dart';
 import '../models/user_profile.dart';
+import '../models/wallet.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
 import '../services/mapbox_service.dart';
 import '../utils/formatters.dart';
 import '../widgets/facility_checkbox_group.dart';
@@ -14,6 +16,7 @@ import 'kost_chat_screen.dart';
 import 'kost_detail_screen.dart';
 import 'kost_group_chat_screen.dart';
 import 'kost_location_picker_screen.dart';
+import 'owner_wallet_screen.dart';
 
 class ManagePropertiesScreen extends StatefulWidget {
   final UserProfile user;
@@ -41,19 +44,31 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
 
   bool get _canApprove => widget.user.canApproveProperties;
 
+  bool _approvalTabLoaded = false;
+
   @override
   void initState() {
     super.initState();
     _tabCtrl = TabController(length: _canApprove ? 3 : 2, vsync: this);
+    if (_canApprove) {
+      _tabCtrl.addListener(_onTabChanged);
+    }
     _loadProperties();
     _loadIncomingBookings();
-    if (_canApprove) {
+  }
+
+  void _onTabChanged() {
+    if (_canApprove && _tabCtrl.index == 2 && !_approvalTabLoaded) {
+      _approvalTabLoaded = true;
       _loadPendingProperties();
     }
   }
 
   @override
   void dispose() {
+    if (_canApprove) {
+      _tabCtrl.removeListener(_onTabChanged);
+    }
     _tabCtrl.dispose();
     _searchCtrl.dispose();
     super.dispose();
@@ -63,8 +78,8 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
     setState(() => _loadingBookings = true);
     try {
       final list = await ApiService.fetchBookings(
-        ownerId: widget.user.isAdministrator ? null : widget.user.id,
-        all: widget.user.isAdministrator,
+        ownerId: _canApprove ? null : widget.user.id,
+        all: _canApprove,
       );
       if (!mounted) return;
       setState(() {
@@ -393,8 +408,12 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
           ],
         ),
       );
-      if (confirmed != true) return;
+      if (confirmed != true) {
+        reasonCtrl.dispose();
+        return;
+      }
       reason = reasonCtrl.text.trim();
+      reasonCtrl.dispose();
     }
 
     if (_processingApprovalIds.contains(kost.id)) return;
@@ -486,6 +505,472 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
     }
   }
 
+  Future<void> _openTransferOwnerDialog(Kost kost) async {
+    List<UserProfile> users = [];
+    bool loading = true;
+    String? loadError;
+
+    try {
+      users = await ApiService.fetchUsers();
+      loading = false;
+    } catch (e) {
+      loadError = e.toString().replaceFirst('Exception: ', '');
+      loading = false;
+    }
+    if (!mounted) return;
+    if (loadError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red.shade700,
+          content: Text('Gagal memuat daftar pengguna: $loadError'),
+        ),
+      );
+      return;
+    }
+
+    final searchCtrl = TextEditingController();
+    int? selectedOwnerId = kost.ownerId;
+    bool saving = false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          final q = searchCtrl.text.trim().toLowerCase();
+          final filtered = users.where((u) {
+            if (u.isBanned) return false;
+            if (q.isEmpty) return true;
+            return u.name.toLowerCase().contains(q) ||
+                u.email.toLowerCase().contains(q) ||
+                u.roleLabel.toLowerCase().contains(q);
+          }).toList();
+
+          return AlertDialog(
+            title: const Text(
+              'Pindah Kepemilikan Properti',
+              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: 360,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Properti: ${kost.name}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
+                  Text(
+                    'Pemilik saat ini: ${kost.ownerName}',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: searchCtrl,
+                    onChanged: (_) => setDialogState(() {}),
+                    decoration: InputDecoration(
+                      hintText: 'Cari nama atau email pemilik baru...',
+                      prefixIcon: const Icon(Icons.search_rounded, size: 18),
+                      isDense: true,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: loading
+                        ? const Center(child: CircularProgressIndicator())
+                        : ListView.builder(
+                            itemCount: filtered.length,
+                            itemBuilder: (_, idx) {
+                              final u = filtered[idx];
+                              final selected = selectedOwnerId == u.id;
+                              return RadioListTile<int>(
+                                dense: true,
+                                value: u.id,
+                                groupValue: selectedOwnerId,
+                                activeColor: AppColors.primaryGreen,
+                                title: Text(
+                                  u.name,
+                                  style: TextStyle(
+                                    fontWeight: selected
+                                        ? FontWeight.w800
+                                        : FontWeight.w600,
+                                    fontSize: 13.5,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  '${u.email} • ${u.roleLabel}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 11.5),
+                                ),
+                                onChanged: saving
+                                    ? null
+                                    : (v) => setDialogState(
+                                          () => selectedOwnerId = v,
+                                        ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: saving ? null : () => Navigator.pop(ctx),
+                child: const Text('Batal'),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primaryGreen,
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: saving ||
+                        selectedOwnerId == null ||
+                        selectedOwnerId == kost.ownerId
+                    ? null
+                    : () async {
+                        setDialogState(() => saving = true);
+                        try {
+                          final updated = await ApiService.transferKostOwner(
+                            kostId: kost.id,
+                            targetOwnerId: selectedOwnerId!,
+                          );
+                          if (!ctx.mounted) return;
+                          Navigator.pop(ctx);
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              backgroundColor: AppColors.primaryGreen,
+                              content: Text(
+                                'Kepemilikan "${updated.name}" dipindahkan ke ${updated.ownerName}.',
+                              ),
+                            ),
+                          );
+                          _loadProperties();
+                          _loadPendingProperties();
+                        } catch (e) {
+                          setDialogState(() => saving = false);
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              backgroundColor: Colors.red.shade700,
+                              content: Text(
+                                e.toString().replaceFirst('Exception: ', ''),
+                              ),
+                            ),
+                          );
+                        }
+                      },
+                child: saving
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text('Pindahkan'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    searchCtrl.dispose();
+  }
+
+  Future<void> _openBoostSheet(Kost kost) async {
+    WalletPricing? pricing;
+    try {
+      pricing = await ApiService.fetchWalletPricing();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.discountRed,
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
+      return;
+    }
+
+    if (!mounted || pricing.boostPackages.isEmpty) return;
+
+    var selectedCode = pricing.boostPackages.first.code;
+    var submitting = false;
+    final packages = pricing.boostPackages;
+    final currentUser = AuthService.currentUserNotifier.value ?? widget.user;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (sheetCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            final selectedPkg = packages.firstWhere(
+              (p) => p.code == selectedCode,
+              orElse: () => packages.first,
+            );
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEF3C7),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(
+                            Icons.bolt_rounded,
+                            color: Color(0xFFD97706),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Boost Iklan Properti',
+                                style: TextStyle(
+                                  fontSize: 16.5,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                              Text(
+                                kost.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 12.5,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceBg,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          const Text(
+                            'Saldo Kredit Anda:',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            formatRupiah(currentUser.creditBalance),
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.primaryGreen,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    ...packages.map((pkg) {
+                      final selected = pkg.code == selectedCode;
+                      return GestureDetector(
+                        onTap: submitting
+                            ? null
+                            : () => setSheetState(() => selectedCode = pkg.code),
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          decoration: BoxDecoration(
+                            color: selected
+                                ? const Color(0xFFFFFBEB)
+                                : Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: selected
+                                  ? const Color(0xFFD97706)
+                                  : AppColors.cardBorder,
+                              width: selected ? 1.5 : 1,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                selected
+                                    ? Icons.radio_button_checked_rounded
+                                    : Icons.radio_button_off_rounded,
+                                color: selected
+                                    ? const Color(0xFFD97706)
+                                    : AppColors.textSecondary,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Unggulan ${pkg.label}',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    Text(
+                                      'Tampil di posisi atas & badge Unggulan selama ${pkg.days} hari',
+                                      style: const TextStyle(
+                                        fontSize: 11.5,
+                                        color: AppColors.textSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Text(
+                                formatRupiah(pkg.price),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 14,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 46,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFD97706),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: submitting
+                            ? null
+                            : () async {
+                                setSheetState(() => submitting = true);
+                                try {
+                                  await ApiService.boostKost(
+                                    kost.id,
+                                    selectedPkg.code,
+                                  );
+                                  await AuthService.verifyActiveSession();
+                                  if (sheetCtx.mounted) {
+                                    Navigator.of(sheetCtx).pop();
+                                  }
+                                  await _loadProperties();
+                                  if (!mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      backgroundColor: AppColors.primaryGreen,
+                                      content: Text(
+                                        'Boost ${selectedPkg.label} aktif untuk ${kost.name}!',
+                                      ),
+                                    ),
+                                  );
+                                } catch (e) {
+                                  if (!mounted) return;
+                                  setSheetState(() => submitting = false);
+                                  final msg = e
+                                      .toString()
+                                      .replaceFirst('Exception: ', '');
+                                  final isShort = msg
+                                      .toLowerCase()
+                                      .contains('saldo kredit');
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      backgroundColor: AppColors.discountRed,
+                                      content: Text(msg),
+                                      action: isShort
+                                          ? SnackBarAction(
+                                              label: 'Top-Up',
+                                              textColor: Colors.white,
+                                              onPressed: () {
+                                                Navigator.of(sheetCtx).pop();
+                                                Navigator.of(context).push(
+                                                  MaterialPageRoute(
+                                                    builder: (_) =>
+                                                        OwnerWalletScreen(
+                                                      user: currentUser,
+                                                    ),
+                                                  ),
+                                                );
+                                              },
+                                            )
+                                          : null,
+                                    ),
+                                  );
+                                }
+                              },
+                        child: submitting
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Text(
+                                'Aktifkan Boost (${formatRupiah(selectedPkg.price)})',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 14,
+                                ),
+                              ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   void _openEditSheet(Kost kost) {
     final formKey = GlobalKey<FormState>();
     final nameCtrl = TextEditingController(text: kost.name);
@@ -524,7 +1009,7 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
     String selectedType =
         ['Putri', 'Putra', 'Campur'].contains(kost.type) ? kost.type : 'Campur';
     bool electricityIncluded = kost.electricityIncluded;
-    bool isSinggahsini = kost.isSinggahsini;
+    bool allowDirectBooking = kost.allowDirectBooking;
     LatLng? pickedLocation = kost.hasCoordinates
         ? LatLng(kost.latitude!, kost.longitude!)
         : null;
@@ -913,13 +1398,19 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                     onChanged: (v) =>
                         setModalState(() => electricityIncluded = v),
                   ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Badge HuniVio Pilihan'),
-                    activeColor: AppColors.primaryGreen,
-                    value: isSinggahsini,
-                    onChanged: (v) => setModalState(() => isSinggahsini = v),
-                  ),
+                  if (widget.user.canApproveProperties)
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Izinkan Booking Langsung (Escrow)'),
+                      subtitle: const Text(
+                        'Khusus properti terverifikasi Admin/Staff',
+                        style: TextStyle(fontSize: 11.5),
+                      ),
+                      activeColor: AppColors.primaryGreen,
+                      value: allowDirectBooking,
+                      onChanged: (v) =>
+                          setModalState(() => allowDirectBooking = v),
+                    ),
                   const SizedBox(height: 12),
                   SizedBox(
                     width: double.infinity,
@@ -975,7 +1466,8 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                                       selectedPublicFacilities.toList(),
                                   'rules': splitCsv(rulesCtrl.text),
                                   'electricityIncluded': electricityIncluded,
-                                  'isSinggahsini': isSinggahsini,
+                                  if (widget.user.canApproveProperties)
+                                    'allowDirectBooking': allowDirectBooking,
                                   if (pickedLocation != null) ...{
                                     'latitude': pickedLocation!.latitude,
                                     'longitude': pickedLocation!.longitude,
@@ -1027,7 +1519,20 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
         );
         },
       ),
-    );
+    ).whenComplete(() {
+      nameCtrl.dispose();
+      cityCtrl.dispose();
+      districtCtrl.dispose();
+      addressCtrl.dispose();
+      landmarkCtrl.dispose();
+      priceCtrl.dispose();
+      roomsCtrl.dispose();
+      bedroomsCtrl.dispose();
+      bathroomsCtrl.dispose();
+      roomSizeCtrl.dispose();
+      descCtrl.dispose();
+      rulesCtrl.dispose();
+    });
   }
 
   @override
@@ -1044,6 +1549,25 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
           'Kelola Properti',
           style: TextStyle(fontWeight: FontWeight.w800),
         ),
+        actions: [
+          if (_canApprove)
+            TextButton.icon(
+              onPressed: _openAdminPayoutRequestsSheet,
+              icon: const Icon(
+                Icons.account_balance_wallet_rounded,
+                size: 18,
+                color: AppColors.primaryGreen,
+              ),
+              label: const Text(
+                'Ajuan Withdraw',
+                style: TextStyle(
+                  color: AppColors.primaryGreen,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12.5,
+                ),
+              ),
+            ),
+        ],
         bottom: TabBar(
           controller: _tabCtrl,
           isScrollable: _canApprove,
@@ -1443,11 +1967,463 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                     ),
                   ),
                 ],
+                if (_canApprove && b.escrowStatus == 'DISPUTED') ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.orange.shade300),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.gavel_rounded,
+                              size: 15,
+                              color: Colors.orange.shade800,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Sengketa Escrow (Admin/Staff)',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.orange.shade900,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (b.disputeReason.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Alasan: ${b.disputeReason}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.orange.shade900,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.red.shade700,
+                                  side: BorderSide(color: Colors.red.shade300),
+                                  minimumSize: const Size(0, 34),
+                                  textStyle: const TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                onPressed: () =>
+                                    _resolveBookingDispute(b, 'REFUND'),
+                                child: const Text('Refund Penyewa'),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.primaryGreen,
+                                  foregroundColor: Colors.white,
+                                  minimumSize: const Size(0, 34),
+                                  textStyle: const TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                onPressed: () =>
+                                    _resolveBookingDispute(b, 'RELEASE'),
+                                child: const Text('Cairkan ke Pemilik'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
             ),
           );
         },
       ),
+    );
+  }
+
+  Future<void> _resolveBookingDispute(Booking b, String resolution) async {
+    final isRelease = resolution == 'RELEASE';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          isRelease ? 'Cairkan Dana ke Pemilik?' : 'Refund Dana ke Penyewa?',
+        ),
+        content: Text(
+          isRelease
+              ? 'Dana escrow booking ini akan dicairkan ke saldo pendapatan pemilik.'
+              : 'Booking ini akan dibatalkan dan dana ditandai untuk refund ke penyewa.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor:
+                  isRelease ? AppColors.primaryGreen : Colors.red.shade700,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(isRelease ? 'Ya, Cairkan' : 'Ya, Refund'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await ApiService.resolveBookingDispute(
+        bookingId: b.id.toString(),
+        resolution: resolution,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isRelease
+                ? 'Sengketa selesai: dana dicairkan ke pemilik.'
+                : 'Sengketa selesai: booking di-refund ke penyewa.',
+          ),
+          backgroundColor: AppColors.primaryGreen,
+        ),
+      );
+      _loadIncomingBookings();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _openAdminPayoutRequestsSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) {
+        List<Map<String, dynamic>> requests = [];
+        bool loading = true;
+        String? error;
+        bool initialized = false;
+
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            Future<void> loadRequests() async {
+              setSheetState(() {
+                loading = true;
+                error = null;
+              });
+              try {
+                final data = await ApiService.fetchAllPayoutRequests();
+                if (!sheetCtx.mounted) return;
+                setSheetState(() {
+                  requests = data;
+                  loading = false;
+                });
+              } catch (e) {
+                if (!sheetCtx.mounted) return;
+                setSheetState(() {
+                  error = e.toString().replaceFirst('Exception: ', '');
+                  loading = false;
+                });
+              }
+            }
+
+            if (!initialized) {
+              initialized = true;
+              Future.microtask(loadRequests);
+            }
+
+            Future<void> processReq(
+              Map<String, dynamic> req,
+              String action,
+            ) async {
+              final id = (req['id'] ?? '').toString();
+              if (id.isEmpty) return;
+              final noteCtrl = TextEditingController();
+              final confirmed = await showDialog<bool>(
+                context: sheetCtx,
+                builder: (dCtx) => AlertDialog(
+                  title: Text(
+                    action == 'APPROVE'
+                        ? 'Setujui Withdraw?'
+                        : 'Tolak Withdraw?',
+                  ),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        action == 'APPROVE'
+                            ? 'Pastikan dana sudah ditransfer ke rekening pemilik.'
+                            : 'Saldo pendapatan sewa pemilik akan dikembalikan.',
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: noteCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Catatan Admin (opsional)',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(dCtx).pop(false),
+                      child: const Text('Batal'),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: action == 'APPROVE'
+                            ? AppColors.primaryGreen
+                            : Colors.red.shade700,
+                        foregroundColor: Colors.white,
+                      ),
+                      onPressed: () => Navigator.of(dCtx).pop(true),
+                      child: Text(action == 'APPROVE' ? 'Setujui' : 'Tolak'),
+                    ),
+                  ],
+                ),
+              );
+              final noteText = noteCtrl.text.trim();
+              noteCtrl.dispose();
+              if (confirmed != true || !sheetCtx.mounted) return;
+
+              try {
+                await ApiService.processPayoutRequest(
+                  requestId: id,
+                  action: action,
+                  adminNote: noteText,
+                );
+                if (!mounted || !sheetCtx.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      action == 'APPROVE'
+                          ? 'Pengajuan withdraw disetujui.'
+                          : 'Pengajuan withdraw ditolak & saldo dikembalikan.',
+                    ),
+                    backgroundColor: AppColors.primaryGreen,
+                  ),
+                );
+                loadRequests();
+              } catch (e) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(e.toString().replaceFirst('Exception: ', '')),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            }
+
+            return DraggableScrollableSheet(
+              expand: false,
+              initialChildSize: 0.72,
+              minChildSize: 0.45,
+              maxChildSize: 0.92,
+              builder: (_, scrollCtrl) => Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Ajuan Withdraw Pemilik',
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: loadRequests,
+                          icon: const Icon(Icons.refresh_rounded),
+                        ),
+                      ],
+                    ),
+                    const Divider(),
+                    if (loading)
+                      const Expanded(
+                        child: Center(
+                          child: CircularProgressIndicator(
+                            color: AppColors.primaryGreen,
+                          ),
+                        ),
+                      )
+                    else if (error != null)
+                      Expanded(
+                        child: Center(
+                          child: Text(
+                            error!,
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                        ),
+                      )
+                    else if (requests.isEmpty)
+                      const Expanded(
+                        child: Center(
+                          child: Text(
+                            'Belum ada pengajuan withdraw.',
+                            style: TextStyle(color: AppColors.textSecondary),
+                          ),
+                        ),
+                      )
+                    else
+                      Expanded(
+                        child: ListView.separated(
+                          controller: scrollCtrl,
+                          itemCount: requests.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 10),
+                          itemBuilder: (_, idx) {
+                            final r = requests[idx];
+                            final amount = (r['amount'] as num?)?.toInt() ?? 0;
+                            final ownerName =
+                                (r['ownerName'] ?? 'Pemilik').toString();
+                            final ownerEmail =
+                                (r['ownerEmail'] ?? '').toString();
+                            final bankName = (r['bankName'] ?? '').toString();
+                            final accNum =
+                                (r['accountNumber'] ?? '').toString();
+                            final accHolder =
+                                (r['accountHolder'] ?? '').toString();
+                            final status =
+                                (r['status'] ?? 'PENDING')
+                                    .toString()
+                                    .toUpperCase();
+                            return Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: AppColors.cardBorder),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          '$ownerName ($ownerEmail)',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ),
+                                      Text(
+                                        status,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w800,
+                                          color: status == 'APPROVED'
+                                              ? AppColors.primaryGreen
+                                              : status == 'REJECTED'
+                                                  ? Colors.red.shade700
+                                                  : Colors.orange.shade800,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    formatRupiah(amount),
+                                    style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w800,
+                                      color: AppColors.textPrimary,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '$bankName • $accNum ($accHolder)',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: AppColors.textSecondary,
+                                    ),
+                                  ),
+                                  if (status == 'PENDING') ...[
+                                    const SizedBox(height: 8),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: OutlinedButton(
+                                            style: OutlinedButton.styleFrom(
+                                              foregroundColor:
+                                                  Colors.red.shade700,
+                                              side: BorderSide(
+                                                color: Colors.red.shade300,
+                                              ),
+                                              minimumSize: const Size(0, 34),
+                                            ),
+                                            onPressed: () =>
+                                                processReq(r, 'REJECT'),
+                                            child: const Text('Tolak'),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: ElevatedButton(
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor:
+                                                  AppColors.primaryGreen,
+                                              foregroundColor: Colors.white,
+                                              minimumSize: const Size(0, 34),
+                                            ),
+                                            onPressed: () =>
+                                                processReq(r, 'APPROVE'),
+                                            child: const Text('Setujui'),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -1833,9 +2809,40 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                                                         AppColors.primaryGreen,
                                                   ),
                                                 ),
+                                                if (widget.user.canApproveProperties)
+                                                  IconButton(
+                                                    tooltip:
+                                                        'Pindah Kepemilikan',
+                                                    visualDensity:
+                                                        VisualDensity.compact,
+                                                    onPressed: () =>
+                                                        _openTransferOwnerDialog(
+                                                            kost),
+                                                    icon: const Icon(
+                                                      Icons.swap_horiz_rounded,
+                                                      size: 20,
+                                                      color: Color(0xFF0369A1),
+                                                    ),
+                                                  ),
                                                 if (widget.user.isAdministrator ||
                                                     kost.ownerId ==
                                                         widget.user.id) ...[
+                                                  IconButton(
+                                                    tooltip: kost.isBoosted
+                                                        ? 'Perpanjang Boost Iklan'
+                                                        : 'Boost Iklan',
+                                                    visualDensity:
+                                                        VisualDensity.compact,
+                                                    onPressed: () =>
+                                                        _openBoostSheet(kost),
+                                                    icon: Icon(
+                                                      Icons.bolt_rounded,
+                                                      size: 21,
+                                                      color: kost.isBoosted
+                                                          ? const Color(0xFFD97706)
+                                                          : AppColors.textSecondary,
+                                                    ),
+                                                  ),
                                                   IconButton(
                                                     tooltip: 'Edit Properti',
                                                     visualDensity:

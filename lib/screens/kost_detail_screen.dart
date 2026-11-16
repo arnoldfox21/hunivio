@@ -10,6 +10,7 @@ import '../services/auth_service.dart';
 import '../services/mapbox_service.dart';
 import '../utils/formatters.dart';
 import '../widgets/booking_sheet.dart';
+import '../widgets/direct_booking_sheet.dart';
 import 'kost_chat_screen.dart';
 import 'owner_profile_screen.dart';
 
@@ -461,7 +462,9 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                                   ),
                                 );
                               } catch (e) {
-                                setSheetState(() => submitting = false);
+                                if (ctx.mounted) {
+                                  setSheetState(() => submitting = false);
+                                }
                                 if (!mounted) return;
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
@@ -498,7 +501,7 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
           );
         },
       ),
-    );
+    ).whenComplete(commentCtrl.dispose);
   }
 
   bool get _isOwner =>
@@ -846,6 +849,40 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
     );
   }
 
+  void _openDirectBookingSheet() {
+    if (AuthService.currentUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Silakan masuk terlebih dahulu untuk melakukan booking.'),
+        ),
+      );
+      return;
+    }
+    if (_isOwner) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Anda tidak dapat mem-booking properti milik sendiri.'),
+        ),
+      );
+      return;
+    }
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => DirectBookingSheet(
+        kost: _kost,
+        onCompleted: () {
+          widget.onBookingCreated();
+          _checkOngoingBooking();
+        },
+      ),
+    );
+  }
+
   Future<void> _openEditDescriptionDialog() async {
     final ctrl = TextEditingController(text: _kost.description);
     bool saving = false;
@@ -1110,7 +1147,37 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                           ),
                         ),
                       ),
-                      if (kost.isSinggahsini)
+                      if (kost.isBoosted)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEF3C7),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.bolt_rounded,
+                                size: 15,
+                                color: Color(0xFFD97706),
+                              ),
+                              SizedBox(width: 4),
+                              Text(
+                                'Unggulan',
+                                style: TextStyle(
+                                  color: Color(0xFFB45309),
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      else if (kost.rating >= 4.5 && kost.reviewCount >= 3)
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 10,
@@ -1124,13 +1191,13 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Icon(
-                                Icons.verified_rounded,
+                                Icons.star_rounded,
                                 size: 15,
                                 color: AppColors.primaryGreen,
                               ),
                               SizedBox(width: 4),
                               Text(
-                                'HuniVio Pilihan',
+                                'Top Rated',
                                 style: TextStyle(
                                   color: AppColors.darkGreen,
                                   fontWeight: FontWeight.w700,
@@ -2051,38 +2118,103 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Expanded(
-                  flex: 4,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _ongoingBooking != null
-                          ? Colors.grey.shade400
-                          : AppColors.primaryGreen,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 13),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                    onPressed: _ongoingBooking != null
-                        ? () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'Anda sudah memiliki jadwal survei untuk properti ini (${_ongoingBooking!.status}).',
-                                ),
+                      if (_ongoingBooking == null &&
+                          _kost.allowDirectBooking &&
+                          _kost.availableRooms > 0) ...[
+                        Expanded(
+                          flex: 4,
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.primaryGreen,
+                              side: const BorderSide(
+                                color: AppColors.primaryGreen,
                               ),
-                            );
-                          }
-                        : _openBookingSheet,
-                    child: Text(
-                      _ongoingBooking != null
-                          ? 'Survei Terjadwal'
-                          : 'Ajukan Survei',
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                ),
+                              padding: const EdgeInsets.symmetric(vertical: 13),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            onPressed: _openBookingSheet,
+                            child: const Text(
+                              'Survei',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          flex: 5,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primaryGreen,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 13),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            onPressed: _openDirectBookingSheet,
+                            child: const Text(
+                              'Booking Sekarang',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                        ),
+                      ] else if (_ongoingBooking == null &&
+                          _kost.allowDirectBooking &&
+                          _kost.availableRooms <= 0)
+                        Expanded(
+                          flex: 4,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.grey.shade400,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 13),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            onPressed: null,
+                            child: const Text(
+                              'Kamar Penuh',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                        )
+                      else
+                        Expanded(
+                          flex: 4,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _ongoingBooking != null
+                                  ? Colors.grey.shade400
+                                  : AppColors.primaryGreen,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 13),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            onPressed: _ongoingBooking != null
+                                ? () {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          'Anda sudah memiliki pengajuan untuk properti ini (${_ongoingBooking!.status}).',
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                : _openBookingSheet,
+                            child: Text(
+                              _ongoingBooking != null
+                                  ? 'Sudah Diajukan'
+                                  : 'Ajukan Survei',
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                        ),
               ],
             ],
           ),

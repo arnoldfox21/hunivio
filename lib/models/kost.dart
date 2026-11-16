@@ -30,6 +30,7 @@ class Kost {
   final bool electricityIncluded;
   final bool isSinggahsini;
   final bool isInstantBooking;
+  final bool allowDirectBooking;
   final List<String> roomFacilities;
   final List<String> publicFacilities;
   final List<String> rules;
@@ -44,11 +45,15 @@ class Kost {
   final bool isFavorite;
   final String approvalStatus; // 'PENDING' | 'APPROVED' | 'REJECTED'
   final String rejectionReason;
+  final DateTime? boostedUntil;
+  final String boostTier;
 
   bool get hasCoordinates => latitude != null && longitude != null;
   bool get isPendingApproval => approvalStatus.toUpperCase() == 'PENDING';
   bool get isApproved => approvalStatus.toUpperCase() == 'APPROVED';
   bool get isRejected => approvalStatus.toUpperCase() == 'REJECTED';
+  bool get isBoosted =>
+      boostedUntil != null && boostedUntil!.isAfter(DateTime.now());
 
   Kost copyWith({bool? isFavorite, int? availableRooms}) {
     return Kost(
@@ -83,6 +88,7 @@ class Kost {
       electricityIncluded: electricityIncluded,
       isSinggahsini: isSinggahsini,
       isInstantBooking: isInstantBooking,
+      allowDirectBooking: allowDirectBooking,
       roomFacilities: roomFacilities,
       publicFacilities: publicFacilities,
       rules: rules,
@@ -97,6 +103,8 @@ class Kost {
       isFavorite: isFavorite ?? this.isFavorite,
       approvalStatus: approvalStatus,
       rejectionReason: rejectionReason,
+      boostedUntil: boostedUntil,
+      boostTier: boostTier,
     );
   }
 
@@ -154,6 +162,7 @@ class Kost {
     required this.electricityIncluded,
     required this.isSinggahsini,
     required this.isInstantBooking,
+    this.allowDirectBooking = false,
     required this.roomFacilities,
     required this.publicFacilities,
     required this.rules,
@@ -168,6 +177,8 @@ class Kost {
     this.isFavorite = false,
     this.approvalStatus = 'APPROVED',
     this.rejectionReason = '',
+    this.boostedUntil,
+    this.boostTier = '',
   });
 
   factory Kost.fromJson(Map<String, dynamic> json) {
@@ -218,6 +229,7 @@ class Kost {
       electricityIncluded: json['electricityIncluded'] == true,
       isSinggahsini: json['isSinggahsini'] == true,
       isInstantBooking: json['isInstantBooking'] ?? true,
+      allowDirectBooking: json['allowDirectBooking'] == true,
       roomFacilities: _parseStringList(json['roomFacilities']),
       publicFacilities: _parseStringList(json['publicFacilities']),
       rules: _parseStringList(json['rules']),
@@ -235,6 +247,10 @@ class Kost {
       approvalStatus:
           (json['approvalStatus'] ?? 'APPROVED').toString().toUpperCase(),
       rejectionReason: json['rejectionReason']?.toString() ?? '',
+      boostedUntil: json['boostedUntil'] != null
+          ? DateTime.tryParse(json['boostedUntil'].toString())
+          : null,
+      boostTier: json['boostTier']?.toString() ?? '',
     );
   }
 

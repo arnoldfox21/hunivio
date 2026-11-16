@@ -162,11 +162,14 @@ class _KostChatScreenState extends State<KostChatScreen> {
   }
 
   void _initSocket() {
+    final token = ApiService.authToken;
+    if (_senderId <= 0 || token == null || token.isEmpty) return;
     try {
       final socket = io.io(
         ApiService.socketBaseUrl,
         io.OptionBuilder()
             .setTransports(['websocket'])
+            .setAuth({'token': token})
             .disableAutoConnect()
             .build(),
       );
@@ -353,23 +356,35 @@ class _KostChatScreenState extends State<KostChatScreen> {
     final text = (preset ?? _msgCtrl.text).trim();
     if (text.isEmpty || _sending) return;
 
-    if (preset == null) {
-      _msgCtrl.clear();
-    }
     setState(() => _sending = true);
 
     try {
       final receiverId = _resolvedReceiverId;
       if (_socketConnected && _socket != null) {
-        _socket!.emit('sendMessage', {
-          'kostId': widget.kost.id,
-          'senderId': _senderId,
-          'senderName': _senderName,
-          'senderAvatar': _senderAvatar,
-          'receiverId': receiverId,
-          'message': text,
-        });
-        if (mounted) setState(() => _sending = false);
+        _socket!.emitWithAck(
+          'sendMessage',
+          {
+            'kostId': widget.kost.id,
+            'senderId': _senderId,
+            'senderName': _senderName,
+            'senderAvatar': _senderAvatar,
+            'receiverId': receiverId,
+            'message': text,
+          },
+          ack: (dynamic ackData) {
+            if (!mounted) return;
+            setState(() => _sending = false);
+            if (ackData != null) {
+              if (preset == null) _msgCtrl.clear();
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Gagal mengirim pesan. Coba lagi.'),
+                ),
+              );
+            }
+          },
+        );
       } else {
         final sent = await ApiService.sendChatMessage(
           kostId: widget.kost.id,
@@ -379,6 +394,7 @@ class _KostChatScreenState extends State<KostChatScreen> {
           receiverId: receiverId,
           message: text,
         );
+        if (mounted && preset == null) _msgCtrl.clear();
         if (!mounted) return;
         setState(() {
           if (!_messages.any((m) => m.id == sent.id)) {

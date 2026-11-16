@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -20,8 +21,15 @@ class KostLocationPickerScreen extends StatefulWidget {
 
 class _KostLocationPickerScreenState extends State<KostLocationPickerScreen> {
   final MapController _mapController = MapController();
+  final TextEditingController _searchCtrl = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
   late LatLng _pickedLocation;
   bool _loadingGps = false;
+  bool _searchingAddress = false;
+  String? _pickedAddress;
+  List<ForwardGeocodeResult> _searchResults = const [];
+  Timer? _searchDebounce;
+  Timer? _reverseDebounce;
 
   @override
   void initState() {
@@ -29,7 +37,73 @@ class _KostLocationPickerScreenState extends State<KostLocationPickerScreen> {
     _pickedLocation = widget.initialLocation ?? MapboxConfig.defaultCenter;
     if (widget.initialLocation == null) {
       _goToMyLocation();
+    } else {
+      _scheduleReverseGeocode(_pickedLocation);
     }
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _reverseDebounce?.cancel();
+    _searchCtrl.dispose();
+    _searchFocusNode.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    final trimmed = value.trim();
+    if (trimmed.length < 2) {
+      setState(() {
+        _searchResults = const [];
+        _searchingAddress = false;
+      });
+      return;
+    }
+    _searchDebounce = Timer(const Duration(milliseconds: 450), () {
+      _performAddressSearch(trimmed);
+    });
+  }
+
+  Future<void> _performAddressSearch(String query) async {
+    final trimmed = query.trim();
+    if (trimmed.length < 2) return;
+    setState(() => _searchingAddress = true);
+    final results = await LocationHelper.forwardGeocode(
+      trimmed,
+      proximity: _pickedLocation,
+    );
+    if (!mounted) return;
+    setState(() {
+      _searchResults = results;
+      _searchingAddress = false;
+    });
+  }
+
+  void _selectSearchResult(ForwardGeocodeResult item) {
+    _searchFocusNode.unfocus();
+    setState(() {
+      _pickedLocation = item.location;
+      _pickedAddress = item.subtitle.isNotEmpty ? item.subtitle : item.title;
+      _searchResults = const [];
+      _searchCtrl.text = item.title;
+    });
+    _mapController.move(item.location, 16.5);
+  }
+
+  void _scheduleReverseGeocode(LatLng point) {
+    _reverseDebounce?.cancel();
+    _reverseDebounce = Timer(const Duration(milliseconds: 550), () async {
+      final res = await LocationHelper.reverseGeocode(point);
+      if (!mounted || res == null) return;
+      final formatted = res.address.isNotEmpty
+          ? res.address
+          : [res.district, res.city].where((s) => s.isNotEmpty).join(', ');
+      if (formatted.isNotEmpty) {
+        setState(() => _pickedAddress = formatted);
+      }
+    });
   }
 
   Future<void> _goToMyLocation() async {
@@ -41,6 +115,7 @@ class _KostLocationPickerScreenState extends State<KostLocationPickerScreen> {
       _loadingGps = false;
     });
     _mapController.move(res.location, 16.0);
+    _scheduleReverseGeocode(res.location);
     if (res.message != null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(res.message!)),
@@ -77,11 +152,17 @@ class _KostLocationPickerScreenState extends State<KostLocationPickerScreen> {
                   setState(() {
                     _pickedLocation = camera.center;
                   });
+                  _scheduleReverseGeocode(camera.center);
                 }
               },
               onTap: (_, point) {
-                setState(() => _pickedLocation = point);
+                _searchFocusNode.unfocus();
+                setState(() {
+                  _pickedLocation = point;
+                  _searchResults = const [];
+                });
                 _mapController.move(point, _mapController.camera.zoom);
+                _scheduleReverseGeocode(point);
               },
             ),
             children: [
@@ -171,20 +252,140 @@ class _KostLocationPickerScreenState extends State<KostLocationPickerScreen> {
             ),
           ),
 
-          // Attribution
-          const Positioned(
+          // Search Bar Alamat di atas peta
+          Positioned(
+            top: 12,
             left: 12,
-            bottom: 142,
+            right: 12,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Material(
+                  elevation: 4,
+                  shadowColor: Colors.black26,
+                  borderRadius: BorderRadius.circular(14),
+                  color: Colors.white,
+                  child: TextField(
+                    controller: _searchCtrl,
+                    focusNode: _searchFocusNode,
+                    textInputAction: TextInputAction.search,
+                    onChanged: _onSearchChanged,
+                    onSubmitted: _performAddressSearch,
+                    decoration: InputDecoration(
+                      hintText: 'Cari alamat, jalan, kampus, atau area...',
+                      hintStyle: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey.shade500,
+                      ),
+                      prefixIcon: const Icon(
+                        Icons.search_rounded,
+                        color: AppColors.primaryGreen,
+                        size: 21,
+                      ),
+                      suffixIcon: _searchingAddress
+                          ? const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppColors.primaryGreen,
+                                ),
+                              ),
+                            )
+                          : _searchCtrl.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.close_rounded, size: 18),
+                                  onPressed: () {
+                                    _searchCtrl.clear();
+                                    setState(() => _searchResults = const []);
+                                  },
+                                )
+                              : null,
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 13,
+                      ),
+                    ),
+                  ),
+                ),
+                if (_searchResults.isNotEmpty)
+                  Container(
+                    margin: const EdgeInsets.only(top: 6),
+                    constraints: const BoxConstraints(maxHeight: 230),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.14),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      itemCount: _searchResults.length,
+                      separatorBuilder: (_, __) => Divider(
+                        height: 1,
+                        color: Colors.grey.shade200,
+                      ),
+                      itemBuilder: (_, idx) {
+                        final item = _searchResults[idx];
+                        return ListTile(
+                          dense: true,
+                          leading: const Icon(
+                            Icons.location_on_outlined,
+                            color: AppColors.primaryGreen,
+                            size: 20,
+                          ),
+                          title: Text(
+                            item.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                            ),
+                          ),
+                          subtitle: item.subtitle.isNotEmpty
+                              ? Text(
+                                  item.subtitle,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                )
+                              : null,
+                          onTap: () => _selectSearchResult(item),
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
+          // Attribution (diperkecil)
+          const Positioned(
+            left: 10,
+            bottom: 148,
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: Colors.white70,
-                borderRadius: BorderRadius.all(Radius.circular(6)),
+                color: Color(0x99FFFFFF),
+                borderRadius: BorderRadius.all(Radius.circular(4)),
               ),
               child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                padding: EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                 child: Text(
-                  '© Mapbox © OpenStreetMap',
-                  style: TextStyle(fontSize: 10, color: Colors.black54),
+                  '© Mapbox © OSM',
+                  style: TextStyle(fontSize: 8.5, color: Colors.black45),
                 ),
               ),
             ),
@@ -225,13 +426,34 @@ class _KostLocationPickerScreenState extends State<KostLocationPickerScreen> {
                         ),
                         const SizedBox(width: 8),
                         Expanded(
-                          child: Text(
-                            'Koordinat: ${_pickedLocation.latitude.toStringAsFixed(6)}, ${_pickedLocation.longitude.toStringAsFixed(6)}',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
-                              color: Color(0xFF1F2937),
-                            ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (_pickedAddress != null &&
+                                  _pickedAddress!.isNotEmpty)
+                                Text(
+                                  _pickedAddress!,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 12.5,
+                                    color: Color(0xFF1F2937),
+                                  ),
+                                ),
+                              Text(
+                                'Koordinat: ${_pickedLocation.latitude.toStringAsFixed(6)}, ${_pickedLocation.longitude.toStringAsFixed(6)}',
+                                style: TextStyle(
+                                  fontWeight: _pickedAddress != null
+                                      ? FontWeight.w500
+                                      : FontWeight.w700,
+                                  fontSize: _pickedAddress != null ? 11.5 : 13,
+                                  color: _pickedAddress != null
+                                      ? const Color(0xFF6B7280)
+                                      : const Color(0xFF1F2937),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],

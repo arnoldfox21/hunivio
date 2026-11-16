@@ -15,6 +15,10 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
   List<UserProfile> _users = [];
   bool _loading = true;
+  bool _loadingMore = false;
+  bool _hasMore = false;
+  int _page = 1;
+  static const int _pageSize = 20;
   String? _error;
   String _selectedRoleFilter = 'SEMUA';
   final Set<int> _updatingUserIds = {};
@@ -38,23 +42,47 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
     super.dispose();
   }
 
-  Future<void> _loadUsers() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  Future<void> _loadUsers({bool loadMore = false}) async {
+    if (loadMore) {
+      if (_loadingMore || !_hasMore) return;
+      setState(() => _loadingMore = true);
+    } else {
+      setState(() {
+        _loading = true;
+        _error = null;
+        _page = 1;
+      });
+    }
     try {
-      final users = await ApiService.fetchUsers();
+      final targetPage = loadMore ? _page + 1 : 1;
+      final users = await ApiService.fetchUsers(
+        search: _searchCtrl.text.trim(),
+        role: _selectedRoleFilter,
+        page: targetPage,
+        limit: _pageSize,
+      );
       if (!mounted) return;
       setState(() {
-        _users = users;
-        _loading = false;
+        if (loadMore) {
+          _users.addAll(users);
+          _page = targetPage;
+          _loadingMore = false;
+        } else {
+          _users = users;
+          _page = 1;
+          _loading = false;
+        }
+        _hasMore = users.length >= _pageSize;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
-        _loading = false;
+        if (loadMore) {
+          _loadingMore = false;
+        } else {
+          _error = e.toString();
+          _loading = false;
+        }
       });
     }
   }
@@ -234,6 +262,7 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                 TextField(
                   controller: _searchCtrl,
                   onChanged: (_) => setState(() {}),
+                  onSubmitted: (_) => _loadUsers(),
                   decoration: InputDecoration(
                     hintText: 'Cari nama, email, atau nomor HP...',
                     prefixIcon: const Icon(Icons.search_rounded),
@@ -241,7 +270,7 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                         ? IconButton(
                             onPressed: () {
                               _searchCtrl.clear();
-                              setState(() {});
+                              _loadUsers();
                             },
                             icon: const Icon(Icons.clear_rounded),
                           )
@@ -321,15 +350,48 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                             onRefresh: _loadUsers,
                             child: ListView.separated(
                               padding: const EdgeInsets.all(16),
-                              itemCount: filtered.length,
+                              itemCount: filtered.length + (_hasMore ? 1 : 0),
                               separatorBuilder: (_, __) =>
                                   const SizedBox(height: 10),
                               itemBuilder: (context, index) {
+                                if (index >= filtered.length) {
+                                  return Center(
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 8,
+                                      ),
+                                      child: OutlinedButton(
+                                        onPressed: _loadingMore
+                                            ? null
+                                            : () => _loadUsers(loadMore: true),
+                                        child: _loadingMore
+                                            ? const SizedBox(
+                                                width: 16,
+                                                height: 16,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                  strokeWidth: 2,
+                                                ),
+                                              )
+                                            : const Text('Muat Lebih Banyak'),
+                                      ),
+                                    ),
+                                  );
+                                }
                                 final user = filtered[index];
                                 final isBusy =
                                     _updatingUserIds.contains(user.id);
+                                final isCurrentAdmin = AuthService
+                                        .currentUserNotifier
+                                        .value
+                                        ?.isAdministrator ??
+                                    false;
                                 final isProtected =
                                     user.id == 1 || user.id == currentUserId;
+                                final canBanTarget = !isProtected &&
+                                    (isCurrentAdmin ||
+                                        (!user.isAdministrator &&
+                                            !user.isStaff));
 
                                 return Container(
                                   padding: const EdgeInsets.all(14),
@@ -485,55 +547,71 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                                       const SizedBox(height: 12),
                                       Row(
                                         children: [
-                                          Expanded(
-                                            child:
-                                                DropdownButtonFormField<String>(
-                                              value: _roleOptions.any(
-                                                (r) =>
-                                                    r['value'] ==
-                                                    user.normalizedRole,
-                                              )
-                                                  ? user.normalizedRole
-                                                  : 'PENYEWA',
-                                              isDense: true,
-                                              decoration: InputDecoration(
-                                                labelText: 'Ubah Role',
-                                                contentPadding:
-                                                    const EdgeInsets.symmetric(
-                                                  horizontal: 12,
-                                                  vertical: 8,
+                                          if (isCurrentAdmin)
+                                            Expanded(
+                                              child:
+                                                  DropdownButtonFormField<String>(
+                                                value: _roleOptions.any(
+                                                  (r) =>
+                                                      r['value'] ==
+                                                      user.normalizedRole,
+                                                )
+                                                    ? user.normalizedRole
+                                                    : 'PENYEWA',
+                                                isDense: true,
+                                                decoration: InputDecoration(
+                                                  labelText: 'Ubah Role',
+                                                  contentPadding:
+                                                      const EdgeInsets.symmetric(
+                                                    horizontal: 12,
+                                                    vertical: 8,
+                                                  ),
+                                                  border: OutlineInputBorder(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            10),
+                                                  ),
                                                 ),
-                                                border: OutlineInputBorder(
-                                                  borderRadius:
-                                                      BorderRadius.circular(10),
-                                                ),
-                                              ),
-                                              items: _roleOptions
-                                                  .map(
-                                                    (opt) => DropdownMenuItem(
-                                                      value: opt['value'],
-                                                      child: Text(
-                                                        opt['label']!,
-                                                        style: const TextStyle(
-                                                          fontSize: 13,
+                                                items: _roleOptions
+                                                    .map(
+                                                      (opt) => DropdownMenuItem(
+                                                        value: opt['value'],
+                                                        child: Text(
+                                                          opt['label']!,
+                                                          style:
+                                                              const TextStyle(
+                                                            fontSize: 13,
+                                                          ),
                                                         ),
                                                       ),
-                                                    ),
-                                                  )
-                                                  .toList(),
-                                              onChanged: isBusy || user.id == 1
-                                                  ? null
-                                                  : (val) {
-                                                      if (val != null) {
-                                                        _updateUserRole(
-                                                          user,
-                                                          val,
-                                                        );
-                                                      }
-                                                    },
+                                                    )
+                                                    .toList(),
+                                                onChanged: isBusy || user.id == 1
+                                                    ? null
+                                                    : (val) {
+                                                        if (val != null) {
+                                                          _updateUserRole(
+                                                            user,
+                                                            val,
+                                                          );
+                                                        }
+                                                      },
+                                              ),
+                                            )
+                                          else
+                                            Expanded(
+                                              child: Text(
+                                                canBanTarget
+                                                    ? 'Akses Staff: Ban / Verifikasi'
+                                                    : 'Akun Staff/Admin dilindungi',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.grey.shade600,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
                                             ),
-                                          ),
-                                          if (!isProtected) ...[
+                                          if (canBanTarget) ...[
                                             const SizedBox(width: 8),
                                             IconButton(
                                               tooltip: user.isBanned
@@ -588,7 +666,9 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
         color: selected ? AppColors.darkGreen : Colors.grey.shade700,
       ),
       onSelected: (_) {
+        if (_selectedRoleFilter == value) return;
         setState(() => _selectedRoleFilter = value);
+        _loadUsers();
       },
     );
   }
