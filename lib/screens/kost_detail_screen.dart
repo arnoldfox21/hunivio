@@ -501,7 +501,9 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
           );
         },
       ),
-    ).whenComplete(commentCtrl.dispose);
+    ).whenComplete(
+      () => Future.delayed(const Duration(milliseconds: 400), commentCtrl.dispose),
+    );
   }
 
   bool get _isOwner =>

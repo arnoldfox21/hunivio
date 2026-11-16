@@ -409,11 +409,11 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
         ),
       );
       if (confirmed != true) {
-        reasonCtrl.dispose();
+        Future.delayed(const Duration(milliseconds: 400), reasonCtrl.dispose);
         return;
       }
       reason = reasonCtrl.text.trim();
-      reasonCtrl.dispose();
+      Future.delayed(const Duration(milliseconds: 400), reasonCtrl.dispose);
     }
 
     if (_processingApprovalIds.contains(kost.id)) return;
@@ -686,7 +686,7 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
         },
       ),
     );
-    searchCtrl.dispose();
+    Future.delayed(const Duration(milliseconds: 400), searchCtrl.dispose);
   }
 
   Future<void> _openBoostSheet(Kost kost) async {
@@ -1520,18 +1520,20 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
         },
       ),
     ).whenComplete(() {
-      nameCtrl.dispose();
-      cityCtrl.dispose();
-      districtCtrl.dispose();
-      addressCtrl.dispose();
-      landmarkCtrl.dispose();
-      priceCtrl.dispose();
-      roomsCtrl.dispose();
-      bedroomsCtrl.dispose();
-      bathroomsCtrl.dispose();
-      roomSizeCtrl.dispose();
-      descCtrl.dispose();
-      rulesCtrl.dispose();
+      Future.delayed(const Duration(milliseconds: 400), () {
+        nameCtrl.dispose();
+        cityCtrl.dispose();
+        districtCtrl.dispose();
+        addressCtrl.dispose();
+        landmarkCtrl.dispose();
+        priceCtrl.dispose();
+        roomsCtrl.dispose();
+        bedroomsCtrl.dispose();
+        bathroomsCtrl.dispose();
+        roomSizeCtrl.dispose();
+        descCtrl.dispose();
+        rulesCtrl.dispose();
+      });
     });
   }
 

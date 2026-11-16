@@ -1021,10 +1021,12 @@ class _OwnerWalletScreenState extends State<OwnerWalletScreen> {
         );
       },
     );
-    amountCtrl.dispose();
-    bankCtrl.dispose();
-    accNumCtrl.dispose();
-    accHolderCtrl.dispose();
+    Future.delayed(const Duration(milliseconds: 400), () {
+      amountCtrl.dispose();
+      bankCtrl.dispose();
+      accNumCtrl.dispose();
+      accHolderCtrl.dispose();
+    });
   }
 
   Widget _buildPayoutRequestTile(Map<String, dynamic> req) {

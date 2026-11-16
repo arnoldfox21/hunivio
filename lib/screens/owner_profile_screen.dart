@@ -394,7 +394,7 @@ class _OwnerProfileScreenState extends State<OwnerProfileScreen>
         ),
       ),
     );
-    contentCtrl.dispose();
+    Future.delayed(const Duration(milliseconds: 400), contentCtrl.dispose);
   }
 
   Future<void> _confirmDeletePost(OwnerPost post) async {

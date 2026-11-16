@@ -1225,7 +1225,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     return _selectedCity;
   }
 
-  void _showLocationPickerSheet() {
+  Future<void> _showLocationPickerSheet() async {
+    await _loadDynamicFilters();
+    if (!mounted) return;
     final searchCtrl = TextEditingController();
     String tempCity = _selectedCity;
     String tempDistrict = _selectedDistrict;
@@ -1496,7 +1498,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           );
         },
       ),
-    ).whenComplete(searchCtrl.dispose);
+    ).whenComplete(
+      () => Future.delayed(const Duration(milliseconds: 400), searchCtrl.dispose),
+    );
   }
 
   void _showTypePickerSheet() {
@@ -2352,7 +2356,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     return RefreshIndicator(
       color: AppColors.primaryGreen,
-      onRefresh: _loadKosts,
+      onRefresh: () => Future.wait([_loadKosts(), _loadDynamicFilters()]),
       child: CustomScrollView(
         controller: _exploreScrollCtrl,
         slivers: [

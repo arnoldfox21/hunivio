@@ -553,7 +553,7 @@ class _KostGroupChatScreenState extends State<KostGroupChatScreen> {
         );
       },
     );
-    searchCtrl.dispose();
+    Future.delayed(const Duration(milliseconds: 400), searchCtrl.dispose);
   }
 
   void _openGroupInfoSheet() {
