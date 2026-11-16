@@ -1107,7 +1107,16 @@ class ApiService {
         }
         return url;
       } else {
-        throw Exception('Gagal mengunggah foto kost.');
+        _handleAuthRejectionIfNeeded(response.statusCode, body);
+        var message = 'Gagal mengunggah foto kost (${response.statusCode}).';
+        try {
+          final decoded = jsonDecode(body);
+          if (decoded is Map && decoded['message'] != null) {
+            final serverMsg = decoded['message'];
+            message = serverMsg is List ? serverMsg.join(', ') : serverMsg.toString();
+          }
+        } catch (_) {}
+        throw Exception(message);
       }
     } finally {
       client.close();
