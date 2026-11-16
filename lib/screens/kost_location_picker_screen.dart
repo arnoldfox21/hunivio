@@ -26,6 +26,7 @@ class _KostLocationPickerScreenState extends State<KostLocationPickerScreen> {
   late LatLng _pickedLocation;
   bool _loadingGps = false;
   bool _searchingAddress = false;
+  bool _hasSearched = false;
   String? _pickedAddress;
   List<ForwardGeocodeResult> _searchResults = const [];
   Timer? _searchDebounce;
@@ -58,6 +59,7 @@ class _KostLocationPickerScreenState extends State<KostLocationPickerScreen> {
       setState(() {
         _searchResults = const [];
         _searchingAddress = false;
+        _hasSearched = false;
       });
       return;
     }
@@ -67,6 +69,7 @@ class _KostLocationPickerScreenState extends State<KostLocationPickerScreen> {
   }
 
   Future<void> _performAddressSearch(String query) async {
+    _searchDebounce?.cancel();
     final trimmed = query.trim();
     if (trimmed.length < 2) return;
     setState(() => _searchingAddress = true);
@@ -78,6 +81,7 @@ class _KostLocationPickerScreenState extends State<KostLocationPickerScreen> {
     setState(() {
       _searchResults = results;
       _searchingAddress = false;
+      _hasSearched = true;
     });
   }
 
@@ -87,6 +91,7 @@ class _KostLocationPickerScreenState extends State<KostLocationPickerScreen> {
       _pickedLocation = item.location;
       _pickedAddress = item.subtitle.isNotEmpty ? item.subtitle : item.title;
       _searchResults = const [];
+      _hasSearched = false;
       _searchCtrl.text = item.title;
     });
     _mapController.move(item.location, 16.5);
@@ -299,7 +304,10 @@ class _KostLocationPickerScreenState extends State<KostLocationPickerScreen> {
                                   icon: const Icon(Icons.close_rounded, size: 18),
                                   onPressed: () {
                                     _searchCtrl.clear();
-                                    setState(() => _searchResults = const []);
+                                    setState(() {
+                                      _searchResults = const [];
+                                      _hasSearched = false;
+                                    });
                                   },
                                 )
                               : null,
@@ -311,6 +319,36 @@ class _KostLocationPickerScreenState extends State<KostLocationPickerScreen> {
                     ),
                   ),
                 ),
+                if (_hasSearched &&
+                    !_searchingAddress &&
+                    _searchResults.isEmpty &&
+                    _searchCtrl.text.trim().length >= 2)
+                  Container(
+                    margin: const EdgeInsets.only(top: 6),
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.12),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: Text(
+                      'Lokasi atau nama jalan tidak ditemukan. Coba sertakan nama kota.',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ),
                 if (_searchResults.isNotEmpty)
                   Container(
                     margin: const EdgeInsets.only(top: 6),

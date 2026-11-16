@@ -184,6 +184,194 @@ class LocationHelper {
     }
   }
 
+  static String _normalizeStreetQuery(String raw) {
+    return raw
+        .trim()
+        .replaceAll(RegExp(r'\b(?:jln\.?|jl\.?)\s+', caseSensitive: false), 'Jalan ')
+        .replaceAll(RegExp(r'\bgg\.?\s+', caseSensitive: false), 'Gang ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  static bool _isStreetQuery(String raw) {
+    return RegExp(r'\b(jalan|jln|jl|gang|gg)\b', caseSensitive: false)
+        .hasMatch(raw);
+  }
+
+  static Future<List<ForwardGeocodeResult>> _searchNominatim(
+    HttpClient client,
+    String query, {
+    LatLng? proximity,
+  }) async {
+    try {
+      final viewboxParam = proximity != null
+          ? '&viewbox=${(proximity.longitude - 0.25).toStringAsFixed(4)},'
+              '${(proximity.latitude + 0.25).toStringAsFixed(4)},'
+              '${(proximity.longitude + 0.25).toStringAsFixed(4)},'
+              '${(proximity.latitude - 0.25).toStringAsFixed(4)}'
+          : '';
+      final nomUri = Uri.parse(
+        'https://nominatim.openstreetmap.org/search?format=jsonv2'
+        '&countrycodes=id&limit=5&accept-language=id$viewboxParam'
+        '&q=${Uri.encodeComponent(query)}',
+      );
+      final req = await client.getUrl(nomUri);
+      req.headers.set('User-Agent', 'HuniVioApp/1.0');
+      final res = await req.close().timeout(const Duration(seconds: 6));
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        final body = await res.transform(utf8.decoder).join();
+        final decoded = jsonDecode(body);
+        if (decoded is List) {
+          final results = <ForwardGeocodeResult>[];
+          for (final item in decoded) {
+            if (item is! Map) continue;
+            final lat = double.tryParse(item['lat']?.toString() ?? '');
+            final lng = double.tryParse(item['lon']?.toString() ?? '');
+            if (lat == null || lng == null) continue;
+            final displayName = (item['display_name'] ?? '').toString().trim();
+            final name = (item['name'] ?? '').toString().trim();
+            results.add(
+              ForwardGeocodeResult(
+                title: name.isNotEmpty
+                    ? name
+                    : displayName.split(',').first.trim(),
+                subtitle: displayName,
+                location: LatLng(lat, lng),
+              ),
+            );
+          }
+          return results;
+        }
+      }
+    } catch (_) {}
+    return const [];
+  }
+
+  static Future<List<ForwardGeocodeResult>> _searchMapboxSearchBox(
+    HttpClient client,
+    String query, {
+    LatLng? proximity,
+  }) async {
+    if (MapboxConfig.publicToken.trim().isEmpty) return const [];
+    try {
+      final proximityParam = proximity != null
+          ? '&proximity=${proximity.longitude},${proximity.latitude}'
+          : '';
+      final uri = Uri.parse(
+        'https://api.mapbox.com/search/searchbox/v1/forward'
+        '?q=${Uri.encodeComponent(query)}'
+        '&access_token=${MapboxConfig.publicToken}&country=id&language=id&limit=5$proximityParam',
+      );
+      final req = await client.getUrl(uri);
+      final res = await req.close().timeout(const Duration(seconds: 6));
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        final body = await res.transform(utf8.decoder).join();
+        final decoded = jsonDecode(body);
+        if (decoded is Map<String, dynamic>) {
+          final features = decoded['features'] as List<dynamic>? ?? [];
+          final results = <ForwardGeocodeResult>[];
+          for (final raw in features) {
+            if (raw is! Map) continue;
+            final geometry = raw['geometry'] as Map?;
+            final coords = geometry?['coordinates'] as List<dynamic>?;
+            if (coords == null || coords.length < 2) continue;
+            final lng = (coords[0] as num?)?.toDouble();
+            final lat = (coords[1] as num?)?.toDouble();
+            if (lat == null || lng == null) continue;
+            final props = raw['properties'] as Map? ?? const {};
+            final name = (props['name'] ?? '').toString().trim();
+            final fullAddress =
+                (props['full_address'] ?? props['place_formatted'] ?? '')
+                    .toString()
+                    .trim();
+            if (name.isEmpty && fullAddress.isEmpty) continue;
+            results.add(
+              ForwardGeocodeResult(
+                title: name.isNotEmpty ? name : fullAddress,
+                subtitle: fullAddress.isNotEmpty ? fullAddress : name,
+                location: LatLng(lat, lng),
+              ),
+            );
+          }
+          return results;
+        }
+      }
+    } catch (_) {}
+    return const [];
+  }
+
+  static Future<List<ForwardGeocodeResult>> _searchMapboxGeocodingV5(
+    HttpClient client,
+    String query, {
+    LatLng? proximity,
+  }) async {
+    if (MapboxConfig.publicToken.trim().isEmpty) return const [];
+    try {
+      final proximityParam = proximity != null
+          ? '&proximity=${proximity.longitude},${proximity.latitude}'
+          : '';
+      final uri = Uri.parse(
+        'https://api.mapbox.com/geocoding/v5/mapbox.places/${Uri.encodeComponent(query)}.json'
+        '?access_token=${MapboxConfig.publicToken}&country=id&language=id&limit=5$proximityParam',
+      );
+      final req = await client.getUrl(uri);
+      final res = await req.close().timeout(const Duration(seconds: 6));
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        final body = await res.transform(utf8.decoder).join();
+        final decoded = jsonDecode(body);
+        if (decoded is Map<String, dynamic>) {
+          final features = decoded['features'] as List<dynamic>? ?? [];
+          final results = <ForwardGeocodeResult>[];
+          for (final raw in features) {
+            if (raw is! Map) continue;
+            final center = raw['center'] as List<dynamic>?;
+            if (center == null || center.length < 2) continue;
+            final lng = (center[0] as num?)?.toDouble();
+            final lat = (center[1] as num?)?.toDouble();
+            if (lat == null || lng == null) continue;
+            final text = (raw['text'] ?? '').toString().trim();
+            final placeName = (raw['place_name'] ?? '').toString().trim();
+            results.add(
+              ForwardGeocodeResult(
+                title: text.isNotEmpty ? text : placeName,
+                subtitle: placeName,
+                location: LatLng(lat, lng),
+              ),
+            );
+          }
+          return results;
+        }
+      }
+    } catch (_) {}
+    return const [];
+  }
+
+  static List<ForwardGeocodeResult> _mergeGeocodeResults(
+    List<ForwardGeocodeResult> primary,
+    List<ForwardGeocodeResult> secondary, {
+    int maxItems = 8,
+  }) {
+    final merged = <ForwardGeocodeResult>[];
+    void tryAdd(ForwardGeocodeResult item) {
+      if (merged.length >= maxItems) return;
+      final normTitle = item.title.toLowerCase().trim();
+      final isDuplicate = merged.any(
+        (existing) =>
+            existing.title.toLowerCase().trim() == normTitle &&
+            distanceKm(existing.location, item.location) < 0.15,
+      );
+      if (!isDuplicate) merged.add(item);
+    }
+
+    for (final item in primary) {
+      tryAdd(item);
+    }
+    for (final item in secondary) {
+      tryAdd(item);
+    }
+    return merged;
+  }
+
   static Future<List<ForwardGeocodeResult>> forwardGeocode(
     String query, {
     LatLng? proximity,
@@ -191,88 +379,32 @@ class LocationHelper {
     final trimmed = query.trim();
     if (trimmed.length < 2) return const [];
 
+    final normalizedStreet = _normalizeStreetQuery(trimmed);
+    final isStreet = _isStreetQuery(trimmed);
     final client = HttpClient();
     client.connectionTimeout = const Duration(seconds: 6);
     try {
-      // 1. Coba Mapbox Geocoding API terlebih dahulu
-      if (MapboxConfig.publicToken.trim().isNotEmpty) {
-        try {
-          final proximityParam = proximity != null
-              ? '&proximity=${proximity.longitude},${proximity.latitude}'
-              : '';
-          final uri = Uri.parse(
-            'https://api.mapbox.com/geocoding/v5/mapbox.places/${Uri.encodeComponent(trimmed)}.json'
-            '?access_token=${MapboxConfig.publicToken}&country=id&language=id&limit=5$proximityParam',
-          );
-          final req = await client.getUrl(uri);
-          final res = await req.close().timeout(const Duration(seconds: 6));
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            final body = await res.transform(utf8.decoder).join();
-            final decoded = jsonDecode(body);
-            if (decoded is Map<String, dynamic>) {
-              final features = decoded['features'] as List<dynamic>? ?? [];
-              final results = <ForwardGeocodeResult>[];
-              for (final raw in features) {
-                if (raw is! Map) continue;
-                final center = raw['center'] as List<dynamic>?;
-                if (center == null || center.length < 2) continue;
-                final lng = (center[0] as num?)?.toDouble();
-                final lat = (center[1] as num?)?.toDouble();
-                if (lat == null || lng == null) continue;
-                final text = (raw['text'] ?? '').toString().trim();
-                final placeName = (raw['place_name'] ?? '').toString().trim();
-                results.add(
-                  ForwardGeocodeResult(
-                    title: text.isNotEmpty ? text : placeName,
-                    subtitle: placeName,
-                    location: LatLng(lat, lng),
-                  ),
-                );
-              }
-              if (results.isNotEmpty) return results;
-            }
-          }
-        } catch (_) {}
-      }
+      // Jalankan OpenStreetMap Nominatim (kuat di nama jalan Indonesia)
+      // dan Mapbox Search Box API v1 (kuat di POI/gedung/kampus) secara paralel.
+      final responses = await Future.wait([
+        _searchNominatim(client, normalizedStreet, proximity: proximity),
+        _searchMapboxSearchBox(client, trimmed, proximity: proximity),
+      ]);
+      final nominatimResults = responses[0];
+      final searchBoxResults = responses[1];
 
-      // 2. Fallback ke Nominatim (OpenStreetMap)
-      try {
-        final nomUri = Uri.parse(
-          'https://nominatim.openstreetmap.org/search?format=jsonv2'
-          '&countrycodes=id&limit=5&accept-language=id&q=${Uri.encodeComponent(trimmed)}',
-        );
-        final req = await client.getUrl(nomUri);
-        req.headers.set('User-Agent', 'HuniVioApp/1.0');
-        final res = await req.close().timeout(const Duration(seconds: 6));
-        if (res.statusCode >= 200 && res.statusCode < 300) {
-          final body = await res.transform(utf8.decoder).join();
-          final decoded = jsonDecode(body);
-          if (decoded is List) {
-            final results = <ForwardGeocodeResult>[];
-            for (final item in decoded) {
-              if (item is! Map) continue;
-              final lat = double.tryParse(item['lat']?.toString() ?? '');
-              final lng = double.tryParse(item['lon']?.toString() ?? '');
-              if (lat == null || lng == null) continue;
-              final displayName =
-                  (item['display_name'] ?? '').toString().trim();
-              final name = (item['name'] ?? '').toString().trim();
-              results.add(
-                ForwardGeocodeResult(
-                  title: name.isNotEmpty
-                      ? name
-                      : displayName.split(',').first.trim(),
-                  subtitle: displayName,
-                  location: LatLng(lat, lng),
-                ),
-              );
-            }
-            return results;
-          }
-        }
-      } catch (_) {}
+      final combined = isStreet
+          ? _mergeGeocodeResults(nominatimResults, searchBoxResults)
+          : _mergeGeocodeResults(searchBoxResults, nominatimResults);
 
-      return const [];
+      if (combined.isNotEmpty) return combined;
+
+      // Fallback terakhir ke Mapbox Geocoding v5 jika keduanya kosong
+      return await _searchMapboxGeocodingV5(
+        client,
+        trimmed,
+        proximity: proximity,
+      );
     } finally {
       client.close();
     }
