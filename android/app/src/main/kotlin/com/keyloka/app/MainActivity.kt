@@ -1,4 +1,4 @@
-package com.hunivio.app
+package com.keyloka.app
 
 import android.Manifest
 import android.accounts.Account
@@ -23,7 +23,7 @@ import java.net.URLEncoder
 
 class MainActivity : FlutterActivity() {
     companion object {
-        private const val CHANNEL = "com.hunivio.app/google_auth"
+        private const val CHANNEL = "com.keyloka.app/google_auth"
         private const val REQ_PICK_GOOGLE_ACCOUNT = 9001
         private const val REQ_GET_ACCOUNTS_PERMISSION = 9002
     }
@@ -77,7 +77,7 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.hunivio.app/launcher")
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.keyloka.app/launcher")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "openExternalUrl" -> {

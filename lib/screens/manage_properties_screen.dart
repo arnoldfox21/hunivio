@@ -988,16 +988,6 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
     final roomSizeCtrl = TextEditingController(text: kost.roomSize);
     final descCtrl = TextEditingController(text: kost.description);
     final ownerPhoneCtrl = TextEditingController(text: kost.ownerPhone);
-    List<String> masterRoomFacilities =
-        List.from(ApiService.defaultRoomFacilities);
-    List<String> masterPublicFacilities =
-        List.from(ApiService.defaultPublicFacilities);
-    final Set<String> selectedRoomFacilities = Set.from(kost.roomFacilities);
-    final Set<String> selectedPublicFacilities =
-        Set.from(kost.publicFacilities);
-    bool loadedMasterFacilities = false;
-    final rulesCtrl = TextEditingController(text: kost.rules.join(', '));
-
     String selectedCategory = [
       'KOST',
       'APARTEMEN',
@@ -1008,6 +998,19 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
         : 'KOST';
     String selectedDailyUnitType =
         kost.unitType == 'Homestay' ? 'Homestay' : 'Villa';
+    final initialFacilityPresets = ApiService.defaultFacilitiesFor(
+      selectedCategory,
+      unitType: selectedCategory == 'HUNIAN_HARIAN' ? selectedDailyUnitType : null,
+    );
+    List<String> masterRoomFacilities =
+        List.from(initialFacilityPresets['room']!);
+    List<String> masterPublicFacilities =
+        List.from(initialFacilityPresets['public']!);
+    final Set<String> selectedRoomFacilities = Set.from(kost.roomFacilities);
+    final Set<String> selectedPublicFacilities =
+        Set.from(kost.publicFacilities);
+    bool loadedMasterFacilities = false;
+    final rulesCtrl = TextEditingController(text: kost.rules.join(', '));
     String selectedType =
         ['Putri', 'Putra', 'Campur'].contains(kost.type) ? kost.type : 'Campur';
     bool electricityIncluded = kost.electricityIncluded;
@@ -1026,9 +1029,23 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
       ),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setModalState) {
-          if (!loadedMasterFacilities) {
-            loadedMasterFacilities = true;
-            ApiService.fetchMasterFacilities().then((data) {
+          void reloadModalFacilities() {
+            final fallback = ApiService.defaultFacilitiesFor(
+              selectedCategory,
+              unitType: selectedCategory == 'HUNIAN_HARIAN'
+                  ? selectedDailyUnitType
+                  : null,
+            );
+            setModalState(() {
+              masterRoomFacilities = List.from(fallback['room']!);
+              masterPublicFacilities = List.from(fallback['public']!);
+            });
+            ApiService.fetchMasterFacilities(
+              category: selectedCategory,
+              unitType: selectedCategory == 'HUNIAN_HARIAN'
+                  ? selectedDailyUnitType
+                  : null,
+            ).then((data) {
               if (!mounted) return;
               setModalState(() {
                 masterRoomFacilities = data['room'] ?? masterRoomFacilities;
@@ -1036,6 +1053,11 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                     data['public'] ?? masterPublicFacilities;
               });
             });
+          }
+
+          if (!loadedMasterFacilities) {
+            loadedMasterFacilities = true;
+            reloadModalFacilities();
           }
           return Padding(
           padding: EdgeInsets.only(
@@ -1088,8 +1110,9 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                       ),
                     ],
                     onChanged: (v) {
-                      if (v != null) {
+                      if (v != null && v != selectedCategory) {
                         setModalState(() => selectedCategory = v);
+                        reloadModalFacilities();
                       }
                     },
                   ),
@@ -1109,8 +1132,9 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                         ),
                       ],
                       onChanged: (v) {
-                        if (v != null) {
+                        if (v != null && v != selectedDailyUnitType) {
                           setModalState(() => selectedDailyUnitType = v);
+                          reloadModalFacilities();
                         }
                       },
                     ),
@@ -1128,7 +1152,8 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                   const SizedBox(height: 10),
                   Row(
                     children: [
-                      if (selectedCategory != 'HUNIAN_HARIAN') ...[
+                      if (selectedCategory != 'HUNIAN_HARIAN' &&
+                          selectedCategory != 'KONTRAKAN') ...[
                         Expanded(
                           child: DropdownButtonFormField<String>(
                             value: selectedType,
@@ -1187,7 +1212,9 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                           decoration: InputDecoration(
                             labelText: selectedCategory == 'HUNIAN_HARIAN'
                                 ? 'Harga / Malam (Rp)'
-                                : 'Harga / Bulan (Rp)',
+                                : selectedCategory == 'KONTRAKAN'
+                                    ? 'Harga / Tahun (Rp)'
+                                    : 'Harga / Bulan (Rp)',
                             border: const OutlineInputBorder(),
                           ),
                           validator: (v) =>
@@ -1454,17 +1481,23 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                                     int.parse(priceCtrl.text.trim());
                                 final isDaily =
                                     selectedCategory == 'HUNIAN_HARIAN';
+                                final isKontrakan =
+                                    selectedCategory == 'KONTRAKAN';
                                 await ApiService.updateKost(kost.id, {
                                   'propertyCategory': selectedCategory,
                                   if (isDaily) 'unitType': selectedDailyUnitType,
                                   'name': nameCtrl.text.trim(),
-                                  'type': isDaily ? 'Campur' : selectedType,
+                                  'type': (isDaily || isKontrakan)
+                                      ? 'Campur'
+                                      : selectedType,
                                   'city': cityCtrl.text.trim(),
                                   'district': districtCtrl.text.trim(),
                                   'address': addressCtrl.text.trim(),
                                   'nearbyLandmark': landmarkCtrl.text.trim(),
-                                  'pricePerMonth': isDaily ? 0 : parsedPrice,
+                                  'pricePerMonth':
+                                      (isDaily || isKontrakan) ? 0 : parsedPrice,
                                   if (isDaily) 'pricePerDay': parsedPrice,
+                                  if (isKontrakan) 'pricePerYear': parsedPrice,
                                   'availableRooms':
                                       int.parse(roomsCtrl.text.trim()),
                                   if (isDaily ||

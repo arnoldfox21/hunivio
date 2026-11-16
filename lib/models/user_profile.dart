@@ -123,7 +123,7 @@ class UserProfile {
     final clean = username.trim().replaceAll(RegExp(r'^@+'), '');
     if (clean.isNotEmpty) return '@$clean';
     final emailPrefix = email.split('@').first.trim();
-    return emailPrefix.isNotEmpty ? '@$emailPrefix' : '@hunivio_user';
+    return emailPrefix.isNotEmpty ? '@$emailPrefix' : '@keyloka_user';
   }
 
   String get computedLevel {

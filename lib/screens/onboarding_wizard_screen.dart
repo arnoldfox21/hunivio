@@ -190,7 +190,7 @@ class _OnboardingWizardScreenState extends State<OnboardingWizardScreen> {
         ),
         const SizedBox(height: 6),
         const Text(
-          'Anda ingin menggunakan Hunivio sebagai apa?',
+          'Anda ingin menggunakan Keyloka sebagai apa?',
           style: TextStyle(
             fontSize: 22,
             fontWeight: FontWeight.w800,

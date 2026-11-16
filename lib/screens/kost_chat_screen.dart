@@ -107,7 +107,7 @@ class _KostChatScreenState extends State<KostChatScreen> {
   }
 
   int get _senderId => AuthService.currentUser?.id ?? 0;
-  String get _senderName => AuthService.currentUser?.name ?? 'Tamu HuniVio';
+  String get _senderName => AuthService.currentUser?.name ?? 'Tamu Keyloka';
   String get _senderAvatar => AuthService.currentUser?.avatarUrl ?? '';
   bool get _isOwner => _senderId > 0 && _senderId == widget.kost.ownerId;
 

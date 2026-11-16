@@ -97,7 +97,7 @@ class _EmailLoginScreenState extends State<EmailLoginScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Login Akun HuniVio',
+                                  'Login Akun Keyloka',
                                   style: TextStyle(
                                     fontSize: 16.5,
                                     fontWeight: FontWeight.w800,

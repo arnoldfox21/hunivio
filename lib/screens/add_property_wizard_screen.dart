@@ -36,6 +36,8 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
   final TextEditingController _roomSizeCtrl = TextEditingController(
     text: '3 x 4 m',
   );
+  final TextEditingController _bedroomsCtrl = TextEditingController(text: '2');
+  final TextEditingController _bathroomsCtrl = TextEditingController(text: '1');
   final TextEditingController _cityCtrl = TextEditingController();
   final TextEditingController _districtCtrl = TextEditingController();
   final TextEditingController _addressCtrl = TextEditingController();
@@ -88,7 +90,7 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
     (
       code: 'KONTRAKAN',
       title: 'Kontrakan',
-      subtitle: 'Rumah petak / keluarga',
+      subtitle: 'Rumah tahunan / keluarga',
       icon: Icons.home_rounded,
     ),
     (
@@ -107,9 +109,26 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
     _loadMasterFacilities();
   }
 
-  Future<void> _loadMasterFacilities() async {
+  Future<void> _loadMasterFacilities({bool resetSelection = false}) async {
+    final fallback = ApiService.defaultFacilitiesFor(
+      _selectedCategory,
+      unitType: _isDailyStay ? _selectedDailyUnitType : null,
+    );
+    if (mounted) {
+      setState(() {
+        _masterRoomFacilities = List.from(fallback['room']!);
+        _masterPublicFacilities = List.from(fallback['public']!);
+        if (resetSelection) {
+          _selectedRoomFacilities.clear();
+          _selectedPublicFacilities.clear();
+        }
+      });
+    }
     try {
-      final data = await ApiService.fetchMasterFacilities();
+      final data = await ApiService.fetchMasterFacilities(
+        category: _selectedCategory,
+        unitType: _isDailyStay ? _selectedDailyUnitType : null,
+      );
       if (!mounted) return;
       setState(() {
         _masterRoomFacilities = data['room'] ?? _masterRoomFacilities;
@@ -124,6 +143,8 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
     _priceCtrl.dispose();
     _roomsCtrl.dispose();
     _roomSizeCtrl.dispose();
+    _bedroomsCtrl.dispose();
+    _bathroomsCtrl.dispose();
     _cityCtrl.dispose();
     _districtCtrl.dispose();
     _addressCtrl.dispose();
@@ -137,6 +158,7 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
   }
 
   bool get _isDailyStay => _selectedCategory == 'HUNIAN_HARIAN';
+  bool get _isKontrakan => _selectedCategory == 'KONTRAKAN';
 
   String get _stepTitle {
     switch (_currentStep) {
@@ -236,15 +258,20 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
         'propertyCategory': _selectedCategory,
         if (_isDailyStay) 'unitType': _selectedDailyUnitType,
         'name': _nameCtrl.text.trim(),
-        'type': _isDailyStay ? 'Campur' : _selectedType,
+        'type': (_isDailyStay || _isKontrakan) ? 'Campur' : _selectedType,
         'city': _cityCtrl.text.trim(),
         'district': _districtCtrl.text.trim(),
         'address': _addressCtrl.text.trim(),
         'nearbyLandmark': _landmarkCtrl.text.trim(),
         'description': _descCtrl.text.trim(),
-        'pricePerMonth': _isDailyStay ? 0 : parsedPrice,
+        'pricePerMonth': (_isDailyStay || _isKontrakan) ? 0 : parsedPrice,
         if (_isDailyStay) 'pricePerDay': parsedPrice,
+        if (_isKontrakan) 'pricePerYear': parsedPrice,
         'availableRooms': rooms,
+        if (_isDailyStay || _isKontrakan) ...{
+          'bedrooms': int.tryParse(_bedroomsCtrl.text.trim()) ?? 1,
+          'bathrooms': int.tryParse(_bathroomsCtrl.text.trim()) ?? 1,
+        },
         'roomSize': _roomSizeCtrl.text.trim(),
         'electricityIncluded': _isDailyStay ? true : _electricityIncluded,
         'isSinggahsini': false,
@@ -359,7 +386,7 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
             icon: Icons.lightbulb_outline_rounded,
             title: 'Panduan Langkah 1',
             description:
-                'Pilih kategori yang sesuai agar properti tampil di tab yang tepat. Untuk Villa atau Homestay harian, gunakan kategori Hunian Harian dengan tarif per malam.',
+                'Pilih kategori yang sesuai agar properti tampil di tab yang tepat. Untuk Kontrakan gunakan tarif per tahun, dan untuk Villa atau Homestay gunakan kategori Hunian Harian dengan tarif per malam.',
           ),
           const Text(
             'Pilih Kategori Properti',
@@ -377,7 +404,22 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
               final selected = _selectedCategory == cat.code;
               return InkWell(
                 borderRadius: BorderRadius.circular(12),
-                onTap: () => setState(() => _selectedCategory = cat.code),
+                onTap: () {
+                  if (_selectedCategory == cat.code) return;
+                  setState(() {
+                    _selectedCategory = cat.code;
+                    if (cat.code == 'KONTRAKAN' && _roomsCtrl.text == '5') {
+                      _roomsCtrl.text = '1';
+                    }
+                    if (cat.code == 'KONTRAKAN' && _roomSizeCtrl.text == '3 x 4 m') {
+                      _roomSizeCtrl.text = '60 / 90 m²';
+                    } else if (cat.code != 'KONTRAKAN' &&
+                        _roomSizeCtrl.text == '60 / 90 m²') {
+                      _roomSizeCtrl.text = '3 x 4 m';
+                    }
+                  });
+                  _loadMasterFacilities(resetSelection: true);
+                },
                 child: Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 10,
@@ -464,14 +506,17 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
                         fontWeight: FontWeight.w700,
                         color: selected ? Colors.white : AppColors.textPrimary,
                       ),
-                      onSelected: (_) =>
-                          setState(() => _selectedDailyUnitType = sub),
+                      onSelected: (_) {
+                        if (_selectedDailyUnitType == sub) return;
+                        setState(() => _selectedDailyUnitType = sub);
+                        _loadMasterFacilities(resetSelection: true);
+                      },
                     ),
                   ),
                 );
               }).toList(),
             ),
-          ] else ...[
+          ] else if (!_isKontrakan) ...[
             const Text(
               'Tipe Penghuni',
               style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800),
@@ -510,7 +555,9 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
               labelText: 'Nama Properti',
               hintText: _isDailyStay
                   ? 'Contoh: Villa Puncak Dieng / Homestay Ijen'
-                  : 'Contoh: Kost Griya Melati Suhat',
+                  : _isKontrakan
+                      ? 'Contoh: Kontrakan Keluarga Griya Asri'
+                      : 'Contoh: Kost Griya Melati Suhat',
               border: const OutlineInputBorder(),
             ),
             validator: (v) =>
@@ -521,12 +568,21 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
             controller: _priceCtrl,
             keyboardType: TextInputType.number,
             decoration: InputDecoration(
-              labelText:
-                  _isDailyStay ? 'Harga / Malam (Rp)' : 'Harga / Bulan (Rp)',
-              hintText: _isDailyStay ? '350000' : '1500000',
+              labelText: _isDailyStay
+                  ? 'Harga / Malam (Rp)'
+                  : _isKontrakan
+                      ? 'Harga / Tahun (Rp)'
+                      : 'Harga / Bulan (Rp)',
+              hintText: _isDailyStay
+                  ? '350000'
+                  : _isKontrakan
+                      ? '18000000'
+                      : '1500000',
               helperText: _isDailyStay
                   ? 'Masukkan tarif menginap per malam tanpa titik/koma'
-                  : 'Masukkan tarif sewa per bulan tanpa titik/koma',
+                  : _isKontrakan
+                      ? 'Masukkan tarif sewa kontrakan per tahun tanpa titik/koma'
+                      : 'Masukkan tarif sewa per bulan tanpa titik/koma',
               border: const OutlineInputBorder(),
             ),
             validator: (v) {
@@ -545,8 +601,11 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
                   controller: _roomsCtrl,
                   keyboardType: TextInputType.number,
                   decoration: InputDecoration(
-                    labelText:
-                        _isDailyStay ? 'Unit / Kamar Tersedia' : 'Sisa Kamar',
+                    labelText: _isDailyStay
+                        ? 'Unit / Kamar Tersedia'
+                        : _isKontrakan
+                            ? 'Unit Rumah Tersedia'
+                            : 'Sisa Kamar',
                     border: const OutlineInputBorder(),
                   ),
                   validator: (v) =>
@@ -557,15 +616,51 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
               Expanded(
                 child: TextFormField(
                   controller: _roomSizeCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Ukuran / Luas',
-                    hintText: 'Misal: 3 x 4 m',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: _isKontrakan
+                        ? 'Luas Bangunan / Tanah'
+                        : 'Ukuran / Luas',
+                    hintText: _isKontrakan
+                        ? 'Misal: 60 / 90 m²'
+                        : 'Misal: 3 x 4 m',
+                    border: const OutlineInputBorder(),
                   ),
                 ),
               ),
             ],
           ),
+          if (_isDailyStay || _isKontrakan) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _bedroomsCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Jumlah Kamar Tidur',
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (v) =>
+                        int.tryParse((v ?? '').trim()) == null ? 'Angka' : null,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextFormField(
+                    controller: _bathroomsCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Jumlah Kamar Mandi',
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (v) =>
+                        int.tryParse((v ?? '').trim()) == null ? 'Angka' : null,
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -951,7 +1046,13 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
           ],
           const SizedBox(height: 14),
           FacilityCheckboxGroup(
-            title: 'Fasilitas Kamar / Unit',
+            title: _isKontrakan
+                ? 'Fasilitas Rumah & Ruangan'
+                : _isDailyStay
+                    ? (_selectedDailyUnitType == 'Villa'
+                        ? 'Fasilitas Villa'
+                        : 'Fasilitas Kamar Homestay')
+                    : 'Fasilitas Kamar / Unit',
             options: _masterRoomFacilities,
             selected: _selectedRoomFacilities,
             onToggle: (item) {
@@ -964,7 +1065,11 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
           ),
           const SizedBox(height: 10),
           FacilityCheckboxGroup(
-            title: 'Fasilitas Umum & Lingkungan',
+            title: _isKontrakan
+                ? 'Fasilitas Lingkungan & Akses'
+                : _isDailyStay
+                    ? 'Area & Layanan'
+                    : 'Fasilitas Umum & Lingkungan',
             options: _masterPublicFacilities,
             selected: _selectedPublicFacilities,
             onToggle: (item) {
@@ -1009,7 +1114,9 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
         _selectedRoomFacilities.length + _selectedPublicFacilities.length;
     final categoryLabel = _isDailyStay
         ? '$_selectedDailyUnitType (Hunian Harian)'
-        : '${_categoryOptions.firstWhere((e) => e.code == _selectedCategory).title} • $_selectedType';
+        : _isKontrakan
+            ? 'Kontrakan'
+            : '${_categoryOptions.firstWhere((e) => e.code == _selectedCategory).title} • $_selectedType';
 
     return Form(
       key: _stepFormKeys[3],
@@ -1087,7 +1194,7 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
                 _summaryRow('Kategori', categoryLabel),
                 _summaryRow(
                   'Tarif',
-                  '${formatRupiah(parsedPrice)} ${_isDailyStay ? '/ malam' : '/ bulan'}',
+                  '${formatRupiah(parsedPrice)} ${_isDailyStay ? '/ malam' : (_isKontrakan ? '/ tahun' : '/ bulan')}',
                 ),
                 _summaryRow(
                   'Lokasi',

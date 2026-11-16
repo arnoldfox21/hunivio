@@ -298,8 +298,18 @@ class ApiService {
     }
   }
 
-  static Future<Map<String, List<String>>> fetchFilters() async {
-    final uri = Uri.parse('$_baseUrl/kosts/filters');
+  static Future<Map<String, List<String>>> fetchFilters({
+    String? propertyCategory,
+  }) async {
+    final queryParams = <String, String>{};
+    if (propertyCategory != null &&
+        propertyCategory.isNotEmpty &&
+        propertyCategory != 'SEMUA') {
+      queryParams['propertyCategory'] = propertyCategory;
+    }
+    final uri = Uri.parse('$_baseUrl/kosts/filters').replace(
+      queryParameters: queryParams.isEmpty ? null : queryParams,
+    );
     final client = HttpClient();
     client.connectionTimeout = const Duration(seconds: 5);
     try {
@@ -328,8 +338,18 @@ class ApiService {
     }
   }
 
-  static Future<List<Map<String, dynamic>>> fetchCityFilterStats() async {
-    final uri = Uri.parse('$_baseUrl/kosts/filters');
+  static Future<List<Map<String, dynamic>>> fetchCityFilterStats({
+    String? propertyCategory,
+  }) async {
+    final queryParams = <String, String>{};
+    if (propertyCategory != null &&
+        propertyCategory.isNotEmpty &&
+        propertyCategory != 'SEMUA') {
+      queryParams['propertyCategory'] = propertyCategory;
+    }
+    final uri = Uri.parse('$_baseUrl/kosts/filters').replace(
+      queryParameters: queryParams.isEmpty ? null : queryParams,
+    );
     final client = HttpClient();
     client.connectionTimeout = const Duration(seconds: 5);
     try {
@@ -401,8 +421,137 @@ class ApiService {
     'Free Air',
   ];
 
-  static Future<Map<String, List<String>>> fetchMasterFacilities() async {
-    final uri = Uri.parse('$_baseUrl/kosts/master-facilities');
+  static const List<String> defaultKontrakanUnitFacilities = [
+    'Kamar Tidur',
+    'Ruang Tamu',
+    'Ruang Keluarga',
+    'Dapur Pribadi',
+    'Kamar Mandi',
+    'Shower',
+    'Kloset Duduk',
+    'Kloset Jongkok',
+    'AC',
+    'Water Heater',
+    'Teras / Halaman',
+    'Toren & Pompa Air',
+    'Listrik Token',
+    'PDAM / Air Sumur',
+  ];
+
+  static const List<String> defaultKontrakanPublicFacilities = [
+    'Carport / Garasi',
+    'Parkir Motor',
+    'Parkir Mobil',
+    'Akses Jalan Mobil',
+    'Keamanan 24 Jam / One Gate',
+    'CCTV Lingkungan',
+    'Dekat Masjid / Mushola',
+    'Bebas Banjir',
+    'Taman',
+  ];
+
+  static const List<String> defaultVillaUnitFacilities = [
+    'Private Pool',
+    'AC',
+    'WiFi',
+    'Smart TV / Karaoke',
+    'Kitchen Set Lengkap',
+    'Kulkas',
+    'Dispenser',
+    'Ruang Keluarga',
+    'Water Heater',
+    'Bathtub',
+    'Balkon / Rooftop',
+    'View Alam',
+    'Handuk & Amenities',
+  ];
+
+  static const List<String> defaultVillaPublicFacilities = [
+    'Area BBQ',
+    'Taman Pribadi',
+    'Parkir Mobil Luas',
+    'Carport / Garasi',
+    'Sarapan (Opsional)',
+    'Penjaga / Caretaker 24 Jam',
+    'CCTV',
+    'Free Listrik & Air',
+  ];
+
+  static const List<String> defaultHomestayUnitFacilities = [
+    'AC',
+    'Kipas Angin',
+    'WiFi',
+    'TV',
+    'Kasur Nyaman',
+    'Kamar Mandi Dalam',
+    'Shower',
+    'Water Heater',
+    'Handuk & Perlengkapan Mandi',
+    'Meja & Kursi',
+    'Lemari',
+    'Balkon / Teras',
+  ];
+
+  static const List<String> defaultHomestayPublicFacilities = [
+    'Sarapan',
+    'Ruang Tamu Bersama',
+    'Pantry / Dapur Bersama',
+    'Dispenser / Air Mineral',
+    'Parkir Motor',
+    'Parkir Mobil',
+    'Check-in 24 Jam',
+    'Laundry',
+    'CCTV',
+  ];
+
+  static Map<String, List<String>> defaultFacilitiesFor(
+    String category, {
+    String? unitType,
+  }) {
+    final cat = category.trim().toUpperCase();
+    final sub = (unitType ?? '').trim().toLowerCase();
+    if (cat == 'KONTRAKAN') {
+      return {
+        'room': defaultKontrakanUnitFacilities,
+        'public': defaultKontrakanPublicFacilities,
+      };
+    }
+    if (cat == 'HUNIAN_HARIAN') {
+      if (sub == 'homestay') {
+        return {
+          'room': defaultHomestayUnitFacilities,
+          'public': defaultHomestayPublicFacilities,
+        };
+      }
+      return {
+        'room': defaultVillaUnitFacilities,
+        'public': defaultVillaPublicFacilities,
+      };
+    }
+    return {
+      'room': defaultRoomFacilities,
+      'public': defaultPublicFacilities,
+    };
+  }
+
+  static Future<Map<String, List<String>>> fetchMasterFacilities({
+    String? category,
+    String? unitType,
+  }) async {
+    final fallback = defaultFacilitiesFor(
+      category ?? 'KOST',
+      unitType: unitType,
+    );
+    final queryParams = <String, String>{};
+    if (category != null && category.trim().isNotEmpty) {
+      queryParams['category'] = category.trim().toUpperCase();
+    }
+    if (unitType != null && unitType.trim().isNotEmpty) {
+      queryParams['unitType'] = unitType.trim();
+    }
+    final uri = Uri.parse('$_baseUrl/kosts/master-facilities').replace(
+      queryParameters: queryParams.isEmpty ? null : queryParams,
+    );
     final client = HttpClient();
     client.connectionTimeout = const Duration(seconds: 6);
     try {
@@ -418,18 +567,15 @@ class ApiService {
             .map((e) => e.toString())
             .toList();
         return {
-          'room': room.isNotEmpty ? room : defaultRoomFacilities,
-          'public': pub.isNotEmpty ? pub : defaultPublicFacilities,
+          'room': room.isNotEmpty ? room : fallback['room']!,
+          'public': pub.isNotEmpty ? pub : fallback['public']!,
         };
       }
     } catch (_) {
     } finally {
       client.close();
     }
-    return {
-      'room': defaultRoomFacilities,
-      'public': defaultPublicFacilities,
-    };
+    return fallback;
   }
 
   static Future<Kost> toggleFavorite(int kostId) async {

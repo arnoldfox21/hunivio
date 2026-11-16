@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import '../utils/formatters.dart';
 
 /// Smooth, modern page transition (fade + subtle upward slide + micro scale).
-class HuniVioPageTransitionsBuilder extends PageTransitionsBuilder {
-  const HuniVioPageTransitionsBuilder();
+class KeylokaPageTransitionsBuilder extends PageTransitionsBuilder {
+  const KeylokaPageTransitionsBuilder();
 
   @override
   Widget buildTransitions<T>(

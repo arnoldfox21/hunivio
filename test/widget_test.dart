@@ -1,13 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hunivio/main.dart';
-import 'package:hunivio/models/kost.dart';
+import 'package:keyloka/main.dart';
+import 'package:keyloka/models/kost.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  testWidgets('HuniVioApp smoke test', (WidgetTester tester) async {
+  testWidgets('KeylokaApp smoke test', (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues({});
-    await tester.pumpWidget(const HuniVioApp());
-    expect(find.text('HuniVio'), findsOneWidget);
+    await tester.pumpWidget(const KeylokaApp());
+    expect(find.text('Keyloka'), findsOneWidget);
 
     await tester.pump(const Duration(milliseconds: 1600));
     await tester.pump(const Duration(milliseconds: 400));

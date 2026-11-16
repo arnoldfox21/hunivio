@@ -89,30 +89,15 @@ class _SplashScreenState extends State<SplashScreen>
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Container(
+                      Image.asset(
+                        'assets/images/keyloka_logo.png',
                         width: 118,
                         height: 118,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(28),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.22),
-                              blurRadius: 24,
-                              offset: const Offset(0, 10),
-                            ),
-                          ],
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(28),
-                          child: Image.asset(
-                            'assets/images/hunivio_logo.png',
-                            fit: BoxFit.cover,
-                          ),
-                        ),
+                        fit: BoxFit.contain,
                       ),
                       const SizedBox(height: 22),
                       const Text(
-                        'HuniVio',
+                        'Keyloka',
                         style: TextStyle(
                           fontSize: 34,
                           fontWeight: FontWeight.w800,

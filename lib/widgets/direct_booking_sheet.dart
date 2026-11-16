@@ -50,8 +50,16 @@ class _DirectBookingSheetState extends State<DirectBookingSheet> {
   }
 
   int get _unitPrice => widget.kost.displayPrice;
-  String get _unitLabel => widget.kost.isDailyStay ? 'hari' : 'bulan';
-  int get _maxDuration => widget.kost.isDailyStay ? 30 : 12;
+  String get _unitLabel => widget.kost.isDailyStay
+      ? 'hari'
+      : widget.kost.isYearlyStay
+          ? 'tahun'
+          : 'bulan';
+  int get _maxDuration => widget.kost.isDailyStay
+      ? 30
+      : widget.kost.isYearlyStay
+          ? 5
+          : 12;
   int get _baseTotalAmount => _unitPrice * _durationCount;
   int get _availablePoints => AuthService.currentUser?.pointsBalance ?? 0;
 
@@ -124,7 +132,7 @@ class _DirectBookingSheetState extends State<DirectBookingSheet> {
                 isPaid ? AppColors.primaryGreen : AppColors.warningOrange,
             content: Text(
               isPaid
-                  ? 'Booking berhasil dibayar! Dana aman di Escrow HuniVio hingga Anda konfirmasi check-in.'
+                  ? 'Booking berhasil dibayar! Dana aman di Escrow Keyloka hingga Anda konfirmasi check-in.'
                   : 'Booking tersimpan (status: ${synced.status}). Anda dapat melanjutkan pembayaran di menu Sewa Saya.',
             ),
           ),
@@ -216,7 +224,7 @@ class _DirectBookingSheetState extends State<DirectBookingSheet> {
                     SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Dilindungi Escrow HuniVio: pembayaran ditahan aman dan baru diteruskan ke pemilik setelah Anda konfirmasi check-in.',
+                        'Dilindungi Escrow Keyloka: pembayaran ditahan aman dan baru diteruskan ke pemilik setelah Anda konfirmasi check-in.',
                         style: TextStyle(
                           fontSize: 11.5,
                           color: AppColors.darkGreen,
@@ -320,7 +328,7 @@ class _DirectBookingSheetState extends State<DirectBookingSheet> {
                   contentPadding: EdgeInsets.zero,
                   activeColor: AppColors.primaryGreen,
                   title: Text(
-                    'Gunakan Poin HuniVio ($_availablePoints poin)',
+                    'Gunakan Poin Keyloka ($_availablePoints poin)',
                     style: const TextStyle(
                       fontSize: 13.5,
                       fontWeight: FontWeight.w700,
@@ -449,7 +457,7 @@ class _DirectBookingSnapWebViewScreenState
     final uri = Uri.tryParse(url);
     if (uri == null) return false;
     final host = uri.host.toLowerCase();
-    if ((host == 'hunivio.app' || host.endsWith('.hunivio.app')) &&
+    if ((host == 'keyloka.app' || host.endsWith('.keyloka.app')) &&
         uri.path.startsWith('/payment/finish')) {
       return true;
     }

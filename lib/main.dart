@@ -7,17 +7,17 @@ import 'widgets/animated_vectors.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await NotificationService.init();
-  runApp(const HuniVioApp());
+  runApp(const KeylokaApp());
 }
 
-class HuniVioApp extends StatelessWidget {
-  const HuniVioApp({super.key});
+class KeylokaApp extends StatelessWidget {
+  const KeylokaApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       navigatorKey: NotificationService.navigatorKey,
-      title: 'HuniVio - Cari Kost Mudah',
+      title: 'Keyloka - Cari Kost Mudah',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
@@ -29,11 +29,11 @@ class HuniVioApp extends StatelessWidget {
         useMaterial3: true,
         pageTransitionsTheme: const PageTransitionsTheme(
           builders: {
-            TargetPlatform.android: HuniVioPageTransitionsBuilder(),
-            TargetPlatform.iOS: HuniVioPageTransitionsBuilder(),
-            TargetPlatform.macOS: HuniVioPageTransitionsBuilder(),
-            TargetPlatform.linux: HuniVioPageTransitionsBuilder(),
-            TargetPlatform.windows: HuniVioPageTransitionsBuilder(),
+            TargetPlatform.android: KeylokaPageTransitionsBuilder(),
+            TargetPlatform.iOS: KeylokaPageTransitionsBuilder(),
+            TargetPlatform.macOS: KeylokaPageTransitionsBuilder(),
+            TargetPlatform.linux: KeylokaPageTransitionsBuilder(),
+            TargetPlatform.windows: KeylokaPageTransitionsBuilder(),
           },
         ),
         inputDecorationTheme: InputDecorationTheme(

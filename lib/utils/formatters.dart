@@ -79,7 +79,7 @@ IconData getFacilityIcon(String facility) {
 }
 
 const MethodChannel _externalLauncherChannel =
-    MethodChannel('com.hunivio.app/launcher');
+    MethodChannel('com.keyloka.app/launcher');
 
 String normalizeWhatsAppPhone(String rawPhone) {
   var digits = rawPhone.replaceAll(RegExp(r'[^0-9]'), '');
@@ -134,7 +134,7 @@ String buildKostWhatsAppTemplate({
       .where((e) => e.isNotEmpty)
       .join(', ');
   return 'Halo Bapak/Ibu $ownerName, saya melihat $category '
-      '*$kostName* ($kostType) di aplikasi *HuniVio*.\n\n'
+      '*$kostName* ($kostType) di aplikasi *Keyloka*.\n\n'
       'Lokasi: $locationParts\n'
       'Harga: ${formatRupiah(pricePerMonth)}/bulan\n\n'
       'Apakah masih ada kamar/unit yang tersedia dan boleh tanya info lebih lanjut? Terima kasih.';
@@ -204,7 +204,7 @@ String buildKostShareText({
       .where((e) => e.isNotEmpty)
       .join(', ');
   final buffer = StringBuffer()
-    ..writeln('Rekomendasi $category di HuniVio:')
+    ..writeln('Rekomendasi $category di Keyloka:')
     ..writeln('*$kostName* ($kostType)')
     ..writeln('Harga: ${formatRupiah(pricePerMonth)}/bulan')
     ..writeln('Rating: ${rating.toStringAsFixed(1)}/5.0')
@@ -214,6 +214,6 @@ String buildKostShareText({
       'Google Maps: https://www.google.com/maps/search/?api=1&query=$latitude,$longitude',
     );
   }
-  buffer.write('\nTemukan hunian nyaman lainnya di aplikasi HuniVio!');
+  buffer.write('\nTemukan hunian nyaman lainnya di aplikasi Keyloka!');
   return buffer.toString();
 }

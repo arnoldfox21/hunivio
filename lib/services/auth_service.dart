@@ -19,10 +19,10 @@ class GoogleOAuthCredentials {
 }
 
 class AuthService {
-  static const String _prefsLoggedInKey = 'hunivio_is_logged_in';
-  static const String _prefsUserKey = 'hunivio_cached_user';
-  static const String _prefsTokenKey = 'hunivio_auth_token';
-  static const String _prefsAuthMethodKey = 'hunivio_auth_method';
+  static const String _prefsLoggedInKey = 'keyloka_is_logged_in';
+  static const String _prefsUserKey = 'keyloka_cached_user';
+  static const String _prefsTokenKey = 'keyloka_auth_token';
+  static const String _prefsAuthMethodKey = 'keyloka_auth_method';
 
   static final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: const ['email', 'profile'],
@@ -198,7 +198,7 @@ class AuthService {
           : e.code;
       throw Exception(
         'Google Sign-In gagal ($detail). '
-        'Jika error ApiException 10, daftarkan package com.hunivio.app dan SHA-1 debug keystore di Google Cloud Console.',
+        'Jika error ApiException 10, daftarkan package com.keyloka.app dan SHA-1 debug keystore di Google Cloud Console.',
       );
     }
 
@@ -292,7 +292,7 @@ class AuthService {
     if (words.isEmpty) {
       return localPart.isNotEmpty
           ? '${localPart[0].toUpperCase()}${localPart.substring(1)}'
-          : 'Pengguna HuniVio';
+          : 'Pengguna Keyloka';
     }
     return words
         .map((w) => '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}')

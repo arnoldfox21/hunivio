@@ -18,7 +18,7 @@ class UserGuideStep {
 }
 
 class AppUserGuideOverlay {
-  static const String _seenPrefKey = 'hunivio_user_guide_seen_v1';
+  static const String _seenPrefKey = 'keyloka_user_guide_seen_v1';
 
   static Future<bool> hasSeenGuide() async {
     final prefs = await SharedPreferences.getInstance();

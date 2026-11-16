@@ -130,7 +130,7 @@ class LocationHelper {
             '&lat=${point.latitude}&lon=${point.longitude}&accept-language=id',
           );
           final req = await client.getUrl(nomUri);
-          req.headers.set('User-Agent', 'HuniVioApp/1.0');
+          req.headers.set('User-Agent', 'KeylokaApp/1.0');
           final res = await req.close().timeout(const Duration(seconds: 6));
           if (res.statusCode >= 200 && res.statusCode < 300) {
             final body = await res.transform(utf8.decoder).join();
@@ -216,7 +216,7 @@ class LocationHelper {
         '&q=${Uri.encodeComponent(query)}',
       );
       final req = await client.getUrl(nomUri);
-      req.headers.set('User-Agent', 'HuniVioApp/1.0');
+      req.headers.set('User-Agent', 'KeylokaApp/1.0');
       final res = await req.close().timeout(const Duration(seconds: 6));
       if (res.statusCode >= 200 && res.statusCode < 300) {
         final body = await res.transform(utf8.decoder).join();
@@ -488,7 +488,7 @@ class CachedMapboxTileProvider extends TileProvider {
 
   Future<Directory> _getCacheDir() async {
     if (_cacheDir != null) return _cacheDir!;
-    final dir = Directory('${Directory.systemTemp.path}/hunivio_mapbox_tiles');
+    final dir = Directory('${Directory.systemTemp.path}/keyloka_mapbox_tiles');
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }

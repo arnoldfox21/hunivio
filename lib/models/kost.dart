@@ -109,10 +109,25 @@ class Kost {
   }
 
   bool get isDailyStay => propertyCategory.toUpperCase() == 'HUNIAN_HARIAN';
-  int get displayPrice =>
-      isDailyStay && (pricePerDay ?? 0) > 0 ? pricePerDay! : pricePerMonth;
-  String get displayPriceShortUnit => isDailyStay ? '/malam' : '/bln';
-  String get displayPriceFullUnit => isDailyStay ? 'per malam' : 'per bulan';
+  bool get isKontrakan => propertyCategory.toUpperCase() == 'KONTRAKAN';
+  bool get isYearlyStay => isKontrakan && (pricePerYear ?? 0) > 0;
+  int get displayPrice {
+    if (isDailyStay && (pricePerDay ?? 0) > 0) return pricePerDay!;
+    if (isYearlyStay) return pricePerYear!;
+    return pricePerMonth;
+  }
+
+  String get displayPriceShortUnit {
+    if (isDailyStay) return '/malam';
+    if (isYearlyStay) return '/thn';
+    return '/bln';
+  }
+
+  String get displayPriceFullUnit {
+    if (isDailyStay) return 'per malam';
+    if (isYearlyStay) return 'per tahun';
+    return 'per bulan';
+  }
 
   String get categoryLabel {
     switch (propertyCategory.toUpperCase()) {

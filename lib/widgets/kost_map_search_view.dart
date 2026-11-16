@@ -109,7 +109,7 @@ class _KostMapSearchViewState extends State<KostMapSearchView> {
               panBuffer: 0,
               keepBuffer: 2,
               tileProvider: CachedMapboxTileProvider.instance,
-              userAgentPackageName: 'com.hunivio.app',
+              userAgentPackageName: 'com.keyloka.app',
             ),
             if (_radiusKm != null)
               CircleLayer(

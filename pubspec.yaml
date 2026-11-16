@@ -1,5 +1,5 @@
-name: hunivio
-description: "HuniVio - Aplikasi Pencari & Sewa Kost."
+name: keyloka
+description: "Keyloka - Aplikasi Pencari & Sewa Kost."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -71,7 +71,9 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/images/hunivio_logo.png
+    - assets/images/keyloka_logo.png
+    - assets/images/keyloka_logo_full.png
+    - assets/images/banner.jpeg
     - assets/images/promo_anak_kost.jpg
     - assets/images/promo_hunian_harian.jpg
 

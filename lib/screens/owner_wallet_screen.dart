@@ -429,7 +429,7 @@ class _OwnerWalletScreenState extends State<OwnerWalletScreen> {
               ),
               const SizedBox(width: 10),
               const Text(
-                'Saldo Kredit HuniVio',
+                'Saldo Kredit Keyloka',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 14,
@@ -1140,7 +1140,7 @@ class _MidtransSnapWebViewScreenState
     final uri = Uri.tryParse(url);
     if (uri == null) return false;
     final host = uri.host.toLowerCase();
-    if ((host == 'hunivio.app' || host.endsWith('.hunivio.app')) &&
+    if ((host == 'keyloka.app' || host.endsWith('.keyloka.app')) &&
         uri.path.startsWith('/payment/finish')) {
       return true;
     }

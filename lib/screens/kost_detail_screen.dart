@@ -2287,7 +2287,7 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                       panBuffer: 0,
                       keepBuffer: 1,
                       tileProvider: CachedMapboxTileProvider.instance,
-                      userAgentPackageName: 'com.hunivio.app',
+                      userAgentPackageName: 'com.keyloka.app',
                     ),
                     MarkerLayer(
                       markers: [

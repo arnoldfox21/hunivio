@@ -29,8 +29,8 @@ class NotificationService {
 
   static const AndroidNotificationChannel _chatChannel =
       AndroidNotificationChannel(
-    'hunivio_chat_channel',
-    'Pesan Chat HuniVio',
+    'keyloka_chat_channel',
+    'Pesan Chat Keyloka',
     description: 'Notifikasi pesan masuk dari penyewa dan pemilik properti.',
     importance: Importance.high,
     playSound: true,
@@ -123,7 +123,7 @@ class NotificationService {
 
         final messageId = int.tryParse('${data['messageId']}') ?? kostId;
         final title =
-            message.notification?.title ?? data['senderName'] ?? 'HuniVio';
+            message.notification?.title ?? data['senderName'] ?? 'Keyloka';
         final body =
             message.notification?.body ??
             data['body']?.toString() ??
@@ -333,8 +333,8 @@ class NotificationService {
   }) async {
     try {
       const androidDetails = AndroidNotificationDetails(
-        'hunivio_chat_channel',
-        'Pesan Chat HuniVio',
+        'keyloka_chat_channel',
+        'Pesan Chat Keyloka',
         channelDescription:
             'Notifikasi pesan masuk dari penyewa dan pemilik properti.',
         importance: Importance.max,

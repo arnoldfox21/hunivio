@@ -141,7 +141,7 @@ class _OwnerProfileScreenState extends State<OwnerProfileScreen>
       await openWhatsAppChat(
         phone: owner.phone,
         message:
-            'Halo ${owner.name}, saya melihat profil Anda di HuniVio dan ingin menanyakan informasi kamar/properti yang tersedia.',
+            'Halo ${owner.name}, saya melihat profil Anda di Keyloka dan ingin menanyakan informasi kamar/properti yang tersedia.',
       );
     } catch (e) {
       if (!mounted) return;

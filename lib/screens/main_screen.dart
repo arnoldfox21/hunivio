@@ -244,12 +244,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _loadDynamicFilters() async {
+    final activeCategory = _selectedCategory;
     try {
       final results = await Future.wait<dynamic>([
-        ApiService.fetchFilters(),
-        ApiService.fetchCityFilterStats(),
+        ApiService.fetchFilters(propertyCategory: activeCategory),
+        ApiService.fetchCityFilterStats(propertyCategory: activeCategory),
       ]);
-      if (!mounted) return;
+      if (!mounted || activeCategory != _selectedCategory) return;
       final filters = results[0] as Map<String, List<String>>;
       final stats = results[1] as List<Map<String, dynamic>>;
       setState(() {
@@ -263,6 +264,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
         final dbFacilities = filters['facilities'] ?? [];
         _facilityChips = dbFacilities;
+        if (_selectedFacility != null &&
+            !_facilityChips.contains(_selectedFacility)) {
+          _selectedFacility = null;
+        }
       });
     } catch (_) {}
   }
@@ -698,7 +703,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   _buildEndpointOption(
-                    title: 'Lokal (Saat Ini)',
+                    title: !ApiService.isOnline ? 'Lokal (Saat Ini)' : 'Lokal',
                     subtitle: ApiService.localBaseUrl,
                     selected: selectedUrl == ApiService.localBaseUrl,
                     onTap: () => setDialogState(
@@ -707,7 +712,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   ),
                   const SizedBox(height: 10),
                   _buildEndpointOption(
-                    title: 'Online (Cloud)',
+                    title: ApiService.isOnline
+                        ? 'Online (Saat Ini)'
+                        : 'Online (Server)',
                     subtitle: ApiService.onlineBaseUrl,
                     selected: selectedUrl == ApiService.onlineBaseUrl,
                     onTap: () => setDialogState(
@@ -738,7 +745,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       _loadBookings();
                     }
                     final label = ApiService.isOnline
-                        ? 'Online (hunivio-api.vercel.app)'
+                        ? 'Online (168.110.208.39:80)'
                         : 'Lokal (192.168.18.12:3001)';
                     ScaffoldMessenger.of(this.context).showSnackBar(
                       SnackBar(
@@ -830,53 +837,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         title: GestureDetector(
           onLongPress: _showApiEndpointDialog,
           behavior: HitTestBehavior.opaque,
-          child: Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.primaryGreen.withOpacity(0.18),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: Image.asset(
-                    'assets/images/hunivio_logo.png',
-                    fit: BoxFit.cover,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'HuniVio',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 19,
-                      color: AppColors.textPrimary,
-                      letterSpacing: -0.4,
-                    ),
-                  ),
-                  Text(
-                    'Cari & Sewa Kost Terpercaya',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: AppColors.textSecondary,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ],
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Image.asset(
+              'assets/images/keyloka_logo_full.png',
+              height: 38,
+              fit: BoxFit.contain,
+            ),
           ),
         ),
         actions: [
@@ -1965,6 +1932,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                         _selectedCategory = 'LONG_TERM';
                         _selectedDailySubType = 'Semua';
                       });
+                      _loadDynamicFilters();
                       _loadKosts();
                     },
                     child: Container(
@@ -2021,6 +1989,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                         _selectedCategory = 'HUNIAN_HARIAN';
                         _selectedType = 'Semua';
                       });
+                      _loadDynamicFilters();
                       _loadKosts();
                     },
                     child: Container(
@@ -2118,6 +2087,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                           ),
                           onSelected: (_) {
                             setState(() => _selectedCategory = code);
+                            _loadDynamicFilters();
                             _loadKosts();
                           },
                         ),
@@ -2520,6 +2490,30 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                         ),
                       );
                     },
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    clipBehavior: Clip.antiAlias,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFFE5ECE8)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: AspectRatio(
+                      aspectRatio: 2465 / 457,
+                      child: Image.asset(
+                        'assets/images/banner.jpeg',
+                        fit: BoxFit.cover,
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 14),
                   Row(
@@ -3583,7 +3577,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Booking ${b.durationCount} ${b.durationUnit == 'DAY' ? 'Hari' : 'Bulan'} • ${formatRupiah(b.totalAmount)}',
+                            'Booking ${b.durationCount} ${b.durationUnit == 'DAY' ? 'Hari' : (b.durationUnit == 'YEAR' ? 'Tahun' : 'Bulan')} • ${formatRupiah(b.totalAmount)}',
                             style: const TextStyle(
                               fontWeight: FontWeight.w700,
                               fontSize: 12.5,

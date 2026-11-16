@@ -42,7 +42,7 @@ class _AuthProfileTabState extends State<AuthProfileTab> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Riwayat Poin HuniVio',
+                  'Riwayat Poin Keyloka',
                   style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 4),
@@ -76,7 +76,7 @@ class _AuthProfileTabState extends State<AuthProfileTab> {
                         return ListTile(
                           contentPadding: EdgeInsets.zero,
                           title: Text(
-                            row['description']?.toString() ?? 'Poin HuniVio',
+                            row['description']?.toString() ?? 'Poin Keyloka',
                             style: const TextStyle(
                               fontSize: 13.5,
                               fontWeight: FontWeight.w600,
@@ -135,7 +135,7 @@ class _AuthProfileTabState extends State<AuthProfileTab> {
           backgroundColor: AppColors.primaryGreen,
           content: Text(
             result.isNewUser
-                ? 'Pendaftaran berhasil! Selamat datang di HuniVio, ${currentUser.name}.'
+                ? 'Pendaftaran berhasil! Selamat datang di Keyloka, ${currentUser.name}.'
                 : 'Berhasil masuk sebagai ${currentUser.name} (${currentUser.email}).',
           ),
         ),
@@ -551,30 +551,15 @@ class _AuthProfileTabState extends State<AuthProfileTab> {
                   ),
                   child: Column(
                     children: [
-                      Container(
+                      Image.asset(
+                        'assets/images/keyloka_logo.png',
                         width: 84,
                         height: 84,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(24),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.20),
-                              blurRadius: 16,
-                              offset: const Offset(0, 6),
-                            ),
-                          ],
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(24),
-                          child: Image.asset(
-                            'assets/images/hunivio_logo.png',
-                            fit: BoxFit.cover,
-                          ),
-                        ),
+                        fit: BoxFit.contain,
                       ),
                       const SizedBox(height: 16),
                       const Text(
-                        'Masuk atau Daftar di HuniVio',
+                        'Masuk atau Daftar di Keyloka',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 21,
@@ -1187,7 +1172,7 @@ class _AuthProfileTabState extends State<AuthProfileTab> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text(
-                            'Saldo Kredit HuniVio',
+                            'Saldo Kredit Keyloka',
                             style: TextStyle(
                               fontSize: 12.5,
                               fontWeight: FontWeight.w600,
@@ -1241,7 +1226,7 @@ class _AuthProfileTabState extends State<AuthProfileTab> {
 
             const SizedBox(height: 12),
 
-            // Level & Poin HuniVio Card
+            // Level & Poin Keyloka Card
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Container(
