@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/user_profile.dart';
@@ -253,7 +254,7 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
         'rules': splitCsv(_rulesCtrl.text),
         'images': finalImages,
         'ownerName': _ownerNameCtrl.text.trim(),
-        'ownerPhone': _ownerPhoneCtrl.text.trim(),
+        'ownerPhone': normalizeWhatsAppPhone(_ownerPhoneCtrl.text.trim()),
         'ownerId': widget.currentUser.id,
         if (_pickedLocation != null) 'latitude': _pickedLocation!.latitude,
         if (_pickedLocation != null) 'longitude': _pickedLocation!.longitude,
@@ -1039,12 +1040,16 @@ class _AddPropertyWizardScreenState extends State<AddPropertyWizardScreen> {
                 child: TextFormField(
                   controller: _ownerPhoneCtrl,
                   keyboardType: TextInputType.phone,
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[0-9+\-\s]')),
+                  ],
                   decoration: const InputDecoration(
                     labelText: 'No. WA Pemilik',
+                    hintText: '081234567890',
                     border: OutlineInputBorder(),
                   ),
-                  validator: (v) =>
-                      v == null || v.trim().isEmpty ? 'Wajib diisi' : null,
+                  validator: validateIndonesianWhatsAppPhone,
                 ),
               ),
             ],

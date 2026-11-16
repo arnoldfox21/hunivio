@@ -91,6 +91,31 @@ String normalizeWhatsAppPhone(String rawPhone) {
   return digits;
 }
 
+/// Validates Indonesian WhatsApp numbers (accepts 08..., 628..., +628...).
+String? validateIndonesianWhatsAppPhone(String? raw) {
+  final trimmed = (raw ?? '').trim();
+  if (trimmed.isEmpty) {
+    return 'No. WA wajib diisi';
+  }
+  if (RegExp(r'[a-zA-Z]').hasMatch(trimmed)) {
+    return 'No. WA hanya boleh berisi angka';
+  }
+  final normalized = normalizeWhatsAppPhone(trimmed);
+  if (!normalized.startsWith('628')) {
+    return 'Gunakan awalan 08 atau 628';
+  }
+  if (normalized.length < 11) {
+    return 'No. WA terlalu pendek (min. 10 digit)';
+  }
+  if (normalized.length > 15) {
+    return 'No. WA terlalu panjang (maks. 14 digit)';
+  }
+  if (!RegExp(r'^628[0-9]{8,12}$').hasMatch(normalized)) {
+    return 'Format No. WA tidak valid';
+  }
+  return null;
+}
+
 String buildKostWhatsAppTemplate({
   required String ownerName,
   required String kostName,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/booking.dart';
 import '../models/kost.dart';
@@ -986,6 +987,7 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
     final bathroomsCtrl = TextEditingController(text: kost.bathrooms.toString());
     final roomSizeCtrl = TextEditingController(text: kost.roomSize);
     final descCtrl = TextEditingController(text: kost.description);
+    final ownerPhoneCtrl = TextEditingController(text: kost.ownerPhone);
     List<String> masterRoomFacilities =
         List.from(ApiService.defaultRoomFacilities);
     List<String> masterPublicFacilities =
@@ -1390,6 +1392,22 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                       border: OutlineInputBorder(),
                     ),
                   ),
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    controller: ownerPhoneCtrl,
+                    keyboardType: TextInputType.phone,
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'[0-9+\-\s]')),
+                    ],
+                    decoration: const InputDecoration(
+                      labelText: 'No. WA Pemilik / Pengelola',
+                      hintText: 'Contoh: 081234567890',
+                      prefixIcon: Icon(Icons.phone_outlined),
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: validateIndonesianWhatsAppPhone,
+                  ),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Termasuk Listrik'),
@@ -1460,6 +1478,9 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                                   },
                                   'roomSize': roomSizeCtrl.text.trim(),
                                   'description': descCtrl.text.trim(),
+                                  'ownerPhone': normalizeWhatsAppPhone(
+                                    ownerPhoneCtrl.text.trim(),
+                                  ),
                                   'roomFacilities':
                                       selectedRoomFacilities.toList(),
                                   'publicFacilities':
