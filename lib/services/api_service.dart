@@ -28,7 +28,7 @@ class PaginatedKostsResult {
 
 class ApiService {
   static const String localBaseUrl = 'http://192.168.18.12:3001/api';
-  static const String onlineBaseUrl = 'https://hunivio-api.vercel.app/api';
+  static const String onlineBaseUrl = 'http://168.110.208.39:80/api';
 
   static String _baseUrl = kReleaseMode ? onlineBaseUrl : localBaseUrl;
   static String? _authToken;
@@ -52,8 +52,9 @@ class ApiService {
 
   static String get baseUrl => _baseUrl;
   static String? get authToken => _authToken;
-  static String get socketBaseUrl =>
-      _baseUrl.endsWith('/api') ? _baseUrl.substring(0, _baseUrl.length - 4) : _baseUrl;
+  static String get socketBaseUrl => _baseUrl.endsWith('/api')
+      ? _baseUrl.substring(0, _baseUrl.length - 4)
+      : _baseUrl;
   static bool get isOnline => _baseUrl == onlineBaseUrl;
 
   static void setBaseUrl(String url) {
@@ -203,7 +204,9 @@ class ApiService {
             data: items,
             total: decoded['total'] is int ? decoded['total'] : items.length,
             page: decoded['page'] is int ? decoded['page'] : (page ?? 1),
-            limit: decoded['limit'] is int ? decoded['limit'] : (limit ?? items.length),
+            limit: decoded['limit'] is int
+                ? decoded['limit']
+                : (limit ?? items.length),
             hasMore: decoded['hasMore'] == true,
           );
         }
@@ -275,7 +278,6 @@ class ApiService {
     }
   }
 
-
   static Future<List<String>> fetchCities() async {
     final uri = Uri.parse('$_baseUrl/kosts/cities');
     final client = HttpClient();
@@ -295,7 +297,6 @@ class ApiService {
       client.close();
     }
   }
-
 
   static Future<Map<String, List<String>>> fetchFilters() async {
     final uri = Uri.parse('$_baseUrl/kosts/filters');
@@ -1027,7 +1028,8 @@ class ApiService {
       if (role != null && role.trim().isNotEmpty && role != 'SEMUA')
         'role': role.trim(),
     };
-    final uri = Uri.parse('$_baseUrl/auth/users').replace(queryParameters: params);
+    final uri =
+        Uri.parse('$_baseUrl/auth/users').replace(queryParameters: params);
     final client = HttpClient();
     client.connectionTimeout = const Duration(seconds: 6);
     try {
@@ -1322,7 +1324,6 @@ class ApiService {
     }
   }
 
-
   static Future<List<Review>> fetchReviews(int kostId) async {
     final uri = Uri.parse('$_baseUrl/reviews?kostId=$kostId');
     final client = HttpClient();
@@ -1342,7 +1343,6 @@ class ApiService {
       client.close();
     }
   }
-
 
   static Future<Review> createReview({
     required int kostId,
@@ -1861,7 +1861,8 @@ class ApiService {
     }
   }
 
-  static Future<({bool liked, int likeCount})> togglePostLike(int postId) async {
+  static Future<({bool liked, int likeCount})> togglePostLike(
+      int postId) async {
     final uri = Uri.parse('$_baseUrl/posts/$postId/like');
     final client = HttpClient();
     client.connectionTimeout = const Duration(seconds: 6);
@@ -2252,9 +2253,7 @@ class ApiService {
       final body = await response.transform(utf8.decoder).join();
       if (response.statusCode >= 200 && response.statusCode < 300) {
         final decoded = jsonDecode(body) as List<dynamic>;
-        return decoded
-            .map((e) => Map<String, dynamic>.from(e as Map))
-            .toList();
+        return decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
       }
       _handleAuthRejectionIfNeeded(response.statusCode, body);
       throw Exception(
@@ -2275,9 +2274,7 @@ class ApiService {
       final body = await response.transform(utf8.decoder).join();
       if (response.statusCode >= 200 && response.statusCode < 300) {
         final decoded = jsonDecode(body) as List<dynamic>;
-        return decoded
-            .map((e) => Map<String, dynamic>.from(e as Map))
-            .toList();
+        return decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
       }
       _handleAuthRejectionIfNeeded(response.statusCode, body);
       throw Exception(
@@ -2293,7 +2290,8 @@ class ApiService {
     required String action,
     String? adminNote,
   }) async {
-    final uri = Uri.parse('$_baseUrl/wallet/payout-requests/$requestId/process');
+    final uri =
+        Uri.parse('$_baseUrl/wallet/payout-requests/$requestId/process');
     final client = HttpClient();
     client.connectionTimeout = const Duration(seconds: 8);
     try {

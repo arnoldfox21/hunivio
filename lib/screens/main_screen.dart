@@ -707,7 +707,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   ),
                   const SizedBox(height: 10),
                   _buildEndpointOption(
-                    title: 'Online (Vercel)',
+                    title: 'Online (Cloud)',
                     subtitle: ApiService.onlineBaseUrl,
                     selected: selectedUrl == ApiService.onlineBaseUrl,
                     onTap: () => setDialogState(
