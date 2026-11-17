@@ -416,6 +416,154 @@ class _AuthProfileTabState extends State<AuthProfileTab> {
     confirmPassCtrl.dispose();
   }
 
+  Future<void> _openVerificationSurveySheet(UserProfile user) async {
+    final phoneCtrl = TextEditingController(text: user.phone);
+    final notesCtrl = TextEditingController(text: user.verificationNotes);
+    DateTime pickedDate = DateTime.now().add(const Duration(days: 1));
+    bool submitting = false;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) {
+          final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
+          final dateStr =
+              '${pickedDate.year}-${pickedDate.month.toString().padLeft(2, '0')}-${pickedDate.day.toString().padLeft(2, '0')}';
+          return Padding(
+            padding: EdgeInsets.fromLTRB(20, 16, 20, 20 + bottomInset),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Ajukan Survei Verifikasi Pemilik',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Staff Keyloka akan berkoordinasi via WhatsApp untuk survei lokasi & verifikasi akun pemilik.',
+                    style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                  ),
+                  const SizedBox(height: 14),
+                  InkWell(
+                    onTap: submitting
+                        ? null
+                        : () async {
+                            final d = await showDatePicker(
+                              context: ctx,
+                              initialDate: pickedDate,
+                              firstDate: DateTime.now(),
+                              lastDate: DateTime.now().add(const Duration(days: 90)),
+                            );
+                            if (d != null) {
+                              setModalState(() => pickedDate = d);
+                            }
+                          },
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Usulan Tanggal Survei',
+                        border: OutlineInputBorder(),
+                      ),
+                      child: Text(
+                        dateStr,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: phoneCtrl,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(
+                      labelText: 'Nomor WhatsApp Aktif',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: notesCtrl,
+                    maxLines: 2,
+                    decoration: const InputDecoration(
+                      labelText: 'Alamat / Patokan & Catatan untuk Staff',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 46,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primaryGreen,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: submitting
+                          ? null
+                          : () async {
+                              setModalState(() => submitting = true);
+                              try {
+                                await ApiService.requestOwnerVerification(
+                                  preferredDate: dateStr,
+                                  phone: phoneCtrl.text.trim(),
+                                  notes: notesCtrl.text.trim(),
+                                );
+                                await AuthService.verifyActiveSession();
+                                if (!ctx.mounted) return;
+                                Navigator.of(ctx).pop();
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    backgroundColor: AppColors.primaryGreen,
+                                    content: Text(
+                                      'Pengajuan survei verifikasi terkirim! Staff akan segera menghubungi Anda.',
+                                    ),
+                                  ),
+                                );
+                              } catch (e) {
+                                setModalState(() => submitting = false);
+                                if (!ctx.mounted) return;
+                                ScaffoldMessenger.of(ctx).showSnackBar(
+                                  SnackBar(
+                                    backgroundColor: AppColors.discountRed,
+                                    content: Text(
+                                      e.toString().replaceFirst('Exception: ', ''),
+                                    ),
+                                  ),
+                                );
+                              }
+                            },
+                      child: submitting
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text(
+                              'Kirim Pengajuan Survei',
+                              style: TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Future<void> _openEditProfile(UserProfile user) async {
     final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
@@ -897,12 +1045,14 @@ class _AuthProfileTabState extends State<AuthProfileTab> {
                               ),
                             ),
                           ),
-                          const SizedBox(width: 6),
-                          const Icon(
-                            Icons.verified_rounded,
-                            color: AppColors.primaryGreen,
-                            size: 19,
-                          ),
+                          if (user.isVerifiedAccount) ...[
+                            const SizedBox(width: 6),
+                            const Icon(
+                              Icons.verified_rounded,
+                              color: AppColors.primaryGreen,
+                              size: 19,
+                            ),
+                          ],
                         ],
                       ),
                       const SizedBox(height: 3),
@@ -1005,8 +1155,12 @@ class _AuthProfileTabState extends State<AuthProfileTab> {
                 children: [
                   Expanded(
                     child: _buildStatItem(
-                      value: 'Terverifikasi',
-                      label: 'Akun Google',
+                      value: user.isVerifiedAccount
+                          ? 'Terverifikasi'
+                          : (user.verificationStatus.toUpperCase() == 'PENDING'
+                              ? 'Menunggu'
+                              : 'Belum Verif'),
+                      label: 'Status Akun',
                       icon: Icons.verified_user_outlined,
                     ),
                   ),
@@ -1032,6 +1186,109 @@ class _AuthProfileTabState extends State<AuthProfileTab> {
           ),
 
           const SizedBox(height: 12),
+
+          if (user.isPemilikKost && !user.isVerifiedAccount) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFFBEB),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFFFDE68A)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.verified_user_outlined,
+                          color: Color(0xFFD97706),
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            user.verificationStatus.toUpperCase() == 'PENDING'
+                                ? 'Survei Verifikasi Sedang Diproses'
+                                : 'Verifikasi Pemilik Properti',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF111827),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Ajukan survei lokasi/koordinasi dengan Staff Keyloka untuk membuka:\n• Booking Langsung (Escrow) pada properti Anda\n• Tarik Dana (Payout) pendapatan sewa ke rekening',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF4B5563),
+                        height: 1.4,
+                      ),
+                    ),
+                    if (user.verificationStatus.toUpperCase() == 'PENDING') ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFA7F3D0)),
+                        ),
+                        child: Text(
+                          'Jadwal usulan: ${user.verificationSurveyDate.isNotEmpty ? user.verificationSurveyDate : '-'} • WA: ${user.phone.isNotEmpty ? user.phone : '-'}${user.verificationNotes.isNotEmpty ? '\nCatatan: ${user.verificationNotes}' : ''}',
+                          style: const TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF065F46),
+                          ),
+                        ),
+                      ),
+                    ] else ...[
+                      if (user.verificationStatus.toUpperCase() == 'REJECTED' &&
+                          user.verificationRejectionReason.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          'Alasan ditolak: ${user.verificationRejectionReason}',
+                          style: const TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFFB91C1C),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primaryGreen,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          onPressed: () => _openVerificationSurveySheet(user),
+                          icon: const Icon(Icons.event_available_rounded, size: 17),
+                          label: const Text(
+                            'Ajukan Survei Verifikasi',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
 
           // Informasi Kontak & Akun Card
           Padding(

@@ -558,8 +558,7 @@ class _OwnerProfileScreenState extends State<OwnerProfileScreen>
         .toSet()
         .take(3)
         .join(', ');
-    final isVerifiedOwner =
-        owner.canManageKost || _properties.any((k) => k.isVerified);
+    final isVerifiedOwner = owner.isVerifiedAccount;
     final canWhatsApp =
         !_isOwnProfile && owner.showWhatsapp && owner.phone.trim().isNotEmpty;
 

@@ -10,6 +10,12 @@ class UserProfile {
   final String city;
   final String coverUrl;
   final String role;
+  final bool isVerified;
+  final String verificationStatus;
+  final String verificationSurveyDate;
+  final int? verificationKostId;
+  final String verificationNotes;
+  final String verificationRejectionReason;
   final bool showWhatsapp;
   final bool isBanned;
   final String? bannedAt;
@@ -36,6 +42,12 @@ class UserProfile {
     this.city = '',
     this.coverUrl = '',
     required this.role,
+    this.isVerified = false,
+    this.verificationStatus = 'NONE',
+    this.verificationSurveyDate = '',
+    this.verificationKostId,
+    this.verificationNotes = '',
+    this.verificationRejectionReason = '',
     this.showWhatsapp = false,
     this.isBanned = false,
     this.bannedAt,
@@ -64,6 +76,15 @@ class UserProfile {
       city: json['city']?.toString() ?? '',
       coverUrl: json['coverUrl']?.toString() ?? '',
       role: json['role']?.toString() ?? 'PENYEWA',
+      isVerified: json['isVerified'] == true,
+      verificationStatus: json['verificationStatus']?.toString() ?? 'NONE',
+      verificationSurveyDate: json['verificationSurveyDate']?.toString() ?? '',
+      verificationKostId: json['verificationKostId'] is int
+          ? json['verificationKostId'] as int
+          : int.tryParse('${json['verificationKostId']}'),
+      verificationNotes: json['verificationNotes']?.toString() ?? '',
+      verificationRejectionReason:
+          json['verificationRejectionReason']?.toString() ?? '',
       showWhatsapp: json['showWhatsapp'] == true,
       isBanned: json['isBanned'] == true,
       bannedAt: json['bannedAt']?.toString(),
@@ -103,6 +124,12 @@ class UserProfile {
       'city': city,
       'coverUrl': coverUrl,
       'role': role,
+      'isVerified': isVerified,
+      'verificationStatus': verificationStatus,
+      'verificationSurveyDate': verificationSurveyDate,
+      if (verificationKostId != null) 'verificationKostId': verificationKostId,
+      'verificationNotes': verificationNotes,
+      'verificationRejectionReason': verificationRejectionReason,
       'showWhatsapp': showWhatsapp,
       'isBanned': isBanned,
       if (bannedAt != null) 'bannedAt': bannedAt,
@@ -170,6 +197,8 @@ class UserProfile {
   bool get canApproveProperties => isAdministrator || isStaff;
 
   bool get canManageKost => isAdministrator || isStaff || isPemilikKost;
+
+  bool get isVerifiedAccount => isVerified || isAdministrator || isStaff;
 
   String get roleLabel {
     switch (normalizedRole) {

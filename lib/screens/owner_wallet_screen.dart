@@ -808,6 +808,18 @@ class _OwnerWalletScreenState extends State<OwnerWalletScreen> {
   }
 
   Future<void> _openPayoutRequestSheet() async {
+    final activeUser = AuthService.currentUserNotifier.value ?? widget.user;
+    if (!activeUser.isVerifiedAccount) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Color(0xFFD97706),
+          content: Text(
+            'Akun Anda belum terverifikasi. Ajukan survei verifikasi di halaman Profil untuk membuka fitur Tarik Dana.',
+          ),
+        ),
+      );
+      return;
+    }
     if (_payoutBalance < 10000) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(

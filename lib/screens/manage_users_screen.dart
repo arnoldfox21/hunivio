@@ -215,6 +215,84 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
     }
   }
 
+  Future<void> _toggleVerifyUser(
+    UserProfile user, {
+    required bool verify,
+    bool reject = false,
+  }) async {
+    String? rejectionReason;
+    if (reject) {
+      final ctrl = TextEditingController();
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('Tolak Verifikasi ${user.name}'),
+          content: TextField(
+            controller: ctrl,
+            decoration: const InputDecoration(
+              labelText: 'Alasan penolakan',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Batal'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red.shade700,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Tolak'),
+            ),
+          ],
+        ),
+      );
+      if (ok != true) return;
+      rejectionReason = ctrl.text.trim();
+    }
+
+    setState(() => _updatingUserIds.add(user.id));
+    try {
+      final updated = await ApiService.verifyUser(
+        userId: user.id,
+        isVerified: verify,
+        status: reject ? 'REJECTED' : (verify ? 'VERIFIED' : 'NONE'),
+        rejectionReason: rejectionReason,
+      );
+      if (!mounted) return;
+      setState(() {
+        final idx = _users.indexWhere((u) => u.id == user.id);
+        if (idx >= 0) _users[idx] = updated;
+        _updatingUserIds.remove(user.id);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor:
+              reject ? Colors.red.shade700 : AppColors.primaryGreen,
+          content: Text(
+            reject
+                ? 'Pengajuan verifikasi ${user.name} ditolak.'
+                : verify
+                    ? '${user.name} berhasil diverifikasi!'
+                    : 'Status verifikasi ${user.name} dicabut.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _updatingUserIds.remove(user.id));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.red.shade700,
+          content: Text('Gagal memperbarui verifikasi: $e'),
+        ),
+      );
+    }
+  }
+
   Color _roleBadgeBg(UserProfile user) {
     if (user.isAdministrator) return const Color(0xFFEDE9FE);
     if (user.isStaff) return const Color(0xFFDBEAFE);
@@ -510,6 +588,47 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                                                   ),
                                                 ),
                                               ),
+                                              if (user.isVerifiedAccount) ...[
+                                                const SizedBox(height: 4),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(
+                                                    horizontal: 8,
+                                                    vertical: 3,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color: AppColors.lightGreenBg,
+                                                    borderRadius: BorderRadius.circular(8),
+                                                  ),
+                                                  child: const Text(
+                                                    'TERVERIFIKASI',
+                                                    style: TextStyle(
+                                                      fontSize: 10,
+                                                      fontWeight: FontWeight.w800,
+                                                      color: AppColors.darkGreen,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ] else if (user.verificationStatus.toUpperCase() == 'PENDING') ...[
+                                                const SizedBox(height: 4),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(
+                                                    horizontal: 8,
+                                                    vertical: 3,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color: const Color(0xFFFEF3C7),
+                                                    borderRadius: BorderRadius.circular(8),
+                                                  ),
+                                                  child: const Text(
+                                                    'MENUNGGU SURVEI',
+                                                    style: TextStyle(
+                                                      fontSize: 10,
+                                                      fontWeight: FontWeight.w800,
+                                                      color: Color(0xFF92400E),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
                                               if (user.isBanned) ...[
                                                 const SizedBox(height: 4),
                                                 Container(
@@ -544,6 +663,107 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                                           ),
                                         ],
                                       ),
+                                      if (user.verificationStatus.toUpperCase() == 'PENDING' &&
+                                          !user.isVerifiedAccount) ...[
+                                        const SizedBox(height: 8),
+                                        Container(
+                                          width: double.infinity,
+                                          padding: const EdgeInsets.all(8),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFFFFBEB),
+                                            borderRadius: BorderRadius.circular(8),
+                                            border: Border.all(
+                                              color: const Color(0xFFFDE68A),
+                                            ),
+                                          ),
+                                          child: Text(
+                                            'Usulan Survei: ${user.verificationSurveyDate.isNotEmpty ? user.verificationSurveyDate : '-'} • WA: ${user.phone.isNotEmpty ? user.phone : '-'}${user.verificationNotes.isNotEmpty ? '\nCatatan: ${user.verificationNotes}' : ''}',
+                                            style: const TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w600,
+                                              color: Color(0xFF92400E),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                      if (!user.isStaff && !user.isAdministrator) ...[
+                                        const SizedBox(height: 8),
+                                        Wrap(
+                                          spacing: 8,
+                                          runSpacing: 6,
+                                          children: [
+                                            if (!user.isVerified)
+                                              ElevatedButton.icon(
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor: AppColors.primaryGreen,
+                                                  foregroundColor: Colors.white,
+                                                  padding: const EdgeInsets.symmetric(
+                                                    horizontal: 10,
+                                                    vertical: 6,
+                                                  ),
+                                                  minimumSize: Size.zero,
+                                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                                ),
+                                                onPressed: isBusy
+                                                    ? null
+                                                    : () => _toggleVerifyUser(
+                                                          user,
+                                                          verify: true,
+                                                        ),
+                                                icon: const Icon(Icons.verified_rounded, size: 14),
+                                                label: const Text(
+                                                  'Verifikasi User',
+                                                  style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700),
+                                                ),
+                                              )
+                                            else
+                                              OutlinedButton(
+                                                style: OutlinedButton.styleFrom(
+                                                  foregroundColor: const Color(0xFF92400E),
+                                                  padding: const EdgeInsets.symmetric(
+                                                    horizontal: 10,
+                                                    vertical: 6,
+                                                  ),
+                                                  minimumSize: Size.zero,
+                                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                                ),
+                                                onPressed: isBusy
+                                                    ? null
+                                                    : () => _toggleVerifyUser(
+                                                          user,
+                                                          verify: false,
+                                                        ),
+                                                child: const Text(
+                                                  'Cabut Verifikasi',
+                                                  style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700),
+                                                ),
+                                              ),
+                                            if (user.verificationStatus.toUpperCase() == 'PENDING')
+                                              OutlinedButton(
+                                                style: OutlinedButton.styleFrom(
+                                                  foregroundColor: Colors.red.shade700,
+                                                  padding: const EdgeInsets.symmetric(
+                                                    horizontal: 10,
+                                                    vertical: 6,
+                                                  ),
+                                                  minimumSize: Size.zero,
+                                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                                ),
+                                                onPressed: isBusy
+                                                    ? null
+                                                    : () => _toggleVerifyUser(
+                                                          user,
+                                                          verify: false,
+                                                          reject: true,
+                                                        ),
+                                                child: const Text(
+                                                  'Tolak',
+                                                  style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700),
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                      ],
                                       const SizedBox(height: 12),
                                       Row(
                                         children: [

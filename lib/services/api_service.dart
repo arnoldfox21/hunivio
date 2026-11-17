@@ -1993,6 +1993,77 @@ class ApiService {
     }
   }
 
+  static Future<UserProfile> requestOwnerVerification({
+    int? kostId,
+    required String preferredDate,
+    required String phone,
+    String notes = '',
+  }) async {
+    final uri = Uri.parse('$_baseUrl/auth/users/verification-request');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 8);
+    try {
+      final request = _attachAuth(await client.postUrl(uri));
+      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
+      request.add(
+        utf8.encode(
+          jsonEncode({
+            if (kostId != null) 'kostId': kostId,
+            'preferredDate': preferredDate,
+            'phone': phone,
+            'notes': notes,
+          }),
+        ),
+      );
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return UserProfile.fromJson(jsonDecode(body) as Map<String, dynamic>);
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      throw Exception(
+        _extractErrorMessage(body, 'Gagal mengirim pengajuan survei verifikasi.'),
+      );
+    } finally {
+      client.close();
+    }
+  }
+
+  static Future<UserProfile> verifyUser({
+    required int userId,
+    required bool isVerified,
+    String? status,
+    String? rejectionReason,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/auth/users/$userId/verify');
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 8);
+    try {
+      final request = _attachAuth(await client.patchUrl(uri));
+      request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
+      request.add(
+        utf8.encode(
+          jsonEncode({
+            'isVerified': isVerified,
+            if (status != null) 'status': status,
+            if (rejectionReason != null) 'rejectionReason': rejectionReason,
+          }),
+        ),
+      );
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return UserProfile.fromJson(jsonDecode(body) as Map<String, dynamic>);
+      }
+      _handleAuthRejectionIfNeeded(response.statusCode, body);
+      throw Exception(
+        _extractErrorMessage(body, 'Gagal memperbarui status verifikasi pengguna.'),
+      );
+    } finally {
+      client.close();
+    }
+  }
+
   static Future<Review> replyToReview({
     required int reviewId,
     required String reply,
