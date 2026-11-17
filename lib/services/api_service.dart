@@ -2245,6 +2245,7 @@ class ApiService {
     required int durationCount,
     String notes = '',
     bool usePoints = false,
+    String paymentScheme = 'FULL',
   }) async {
     final uri = Uri.parse('$_baseUrl/bookings/direct');
     final client = HttpClient();
@@ -2262,6 +2263,7 @@ class ApiService {
             'durationCount': durationCount,
             'notes': notes,
             'usePoints': usePoints,
+            'paymentScheme': paymentScheme,
           }),
         ),
       );

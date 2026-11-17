@@ -16,6 +16,10 @@ class Booking {
   final int totalAmount;
   final int platformFee;
   final int ownerNetAmount;
+  final int serviceFee;
+  final String paymentScheme;
+  final int paidAmount;
+  final int remainingAmount;
   final String? paymentOrderId;
   final String? paymentUrl;
   final String paymentStatus;
@@ -46,6 +50,10 @@ class Booking {
     this.totalAmount = 0,
     this.platformFee = 0,
     this.ownerNetAmount = 0,
+    this.serviceFee = 0,
+    this.paymentScheme = 'FULL',
+    this.paidAmount = 0,
+    this.remainingAmount = 0,
     this.paymentOrderId,
     this.paymentUrl,
     this.paymentStatus = 'UNPAID',
@@ -80,6 +88,10 @@ class Booking {
       totalAmount: parseInt(json['totalAmount']),
       platformFee: parseInt(json['platformFee']),
       ownerNetAmount: parseInt(json['ownerNetAmount']),
+      serviceFee: parseInt(json['serviceFee']),
+      paymentScheme: json['paymentScheme']?.toString() ?? 'FULL',
+      paidAmount: parseInt(json['paidAmount']),
+      remainingAmount: parseInt(json['remainingAmount']),
       paymentOrderId: json['paymentOrderId']?.toString(),
       paymentUrl: json['paymentUrl']?.toString(),
       paymentStatus: json['paymentStatus']?.toString() ?? 'UNPAID',

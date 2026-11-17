@@ -28,7 +28,9 @@ class _DirectBookingSheetState extends State<DirectBookingSheet> {
 
   DateTime _startDate = DateTime.now().add(const Duration(days: 1));
   int _durationCount = 1;
+  String _paymentScheme = 'FULL';
   bool _usePoints = false;
+  bool _showFeeInfo = false;
   bool _submitting = false;
 
   @override
@@ -61,20 +63,38 @@ class _DirectBookingSheetState extends State<DirectBookingSheet> {
           ? 5
           : 12;
   int get _baseTotalAmount => _unitPrice * _durationCount;
+  bool get _canUseDp =>
+      !widget.kost.isDailyStay &&
+      (_durationCount > 1 || widget.kost.isYearlyStay);
+  String get _effectiveScheme =>
+      (_canUseDp && _paymentScheme == 'DP') ? 'DP' : 'FULL';
+  int get _payableRent =>
+      _effectiveScheme == 'DP' ? (_baseTotalAmount * 0.3).round() : _baseTotalAmount;
+  int get _remainingRent =>
+      (_baseTotalAmount - _payableRent).clamp(0, _baseTotalAmount);
   int get _availablePoints => AuthService.currentUser?.pointsBalance ?? 0;
 
   int get _pointsUsedCount {
     if (!_usePoints || _availablePoints <= 0) return 0;
-    final platformFee = (_baseTotalAmount * 5 / 100).round();
+    final platformFee = (_payableRent * 5 / 100).round();
     final maxDiscount = (platformFee * 0.5).floor();
-    final maxPoints = maxDiscount ~/ 50;
+    final pointCapByPayable = (_payableRent - 1000).clamp(0, _payableRent);
+    final allowedDiscount =
+        maxDiscount < pointCapByPayable ? maxDiscount : pointCapByPayable;
+    final maxPoints = allowedDiscount ~/ 50;
     return _availablePoints < maxPoints ? _availablePoints : maxPoints;
   }
 
   int get _pointsDiscount => _pointsUsedCount * 50;
-  int get _totalAmount =>
-      (_baseTotalAmount - _pointsDiscount).clamp(1000, _baseTotalAmount);
-  int get _estimatedEarnedPoints => _totalAmount ~/ 10000;
+  int get _netRentPayNow =>
+      (_payableRent - _pointsDiscount).clamp(1000, _payableRent < 1000 ? 1000 : _payableRent);
+  int get _serviceFee {
+    final pctFee = (_netRentPayNow * 0.025).round();
+    return pctFee > 5000 ? pctFee : 5000;
+  }
+
+  int get _totalAmount => _netRentPayNow + _serviceFee;
+  int get _estimatedEarnedPoints => _netRentPayNow ~/ 10000;
 
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
@@ -104,6 +124,7 @@ class _DirectBookingSheetState extends State<DirectBookingSheet> {
         durationCount: _durationCount,
         notes: _notesCtrl.text.trim(),
         usePoints: _usePoints,
+        paymentScheme: _effectiveScheme,
       );
 
       if (!mounted) return;
@@ -322,6 +343,109 @@ class _DirectBookingSheetState extends State<DirectBookingSheet> {
                   border: OutlineInputBorder(),
                 ),
               ),
+              if (_canUseDp) ...[
+                const SizedBox(height: 12),
+                const Text(
+                  'Skema Pembayaran',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: _submitting
+                            ? null
+                            : () => setState(() => _paymentScheme = 'FULL'),
+                        child: Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: _effectiveScheme == 'FULL'
+                                ? AppColors.primaryGreen.withOpacity(0.08)
+                                : Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _effectiveScheme == 'FULL'
+                                  ? AppColors.primaryGreen
+                                  : AppColors.cardBorder,
+                              width: _effectiveScheme == 'FULL' ? 1.5 : 1,
+                            ),
+                          ),
+                          child: const Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Bayar Penuh (100%)',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'Langsung lunas',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: _submitting
+                            ? null
+                            : () => setState(() => _paymentScheme = 'DP'),
+                        child: Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: _effectiveScheme == 'DP'
+                                ? AppColors.primaryGreen.withOpacity(0.08)
+                                : Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _effectiveScheme == 'DP'
+                                  ? AppColors.primaryGreen
+                                  : AppColors.cardBorder,
+                              width: _effectiveScheme == 'DP' ? 1.5 : 1,
+                            ),
+                          ),
+                          child: const Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'DP 30% (Booking Fee)',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                'Sisa saat check-in',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
               if (_availablePoints > 0) ...[
                 const SizedBox(height: 10),
                 SwitchListTile(
@@ -337,7 +461,7 @@ class _DirectBookingSheetState extends State<DirectBookingSheet> {
                   subtitle: Text(
                     _pointsDiscount > 0
                         ? 'Potongan ${formatRupiah(_pointsDiscount)} ($_pointsUsedCount poin)'
-                        : '1 poin = Rp50 (maks. 2,5% dari total sewa)',
+                        : '1 poin = Rp50 (maks. 2,5% dari tagihan sewa)',
                     style: const TextStyle(fontSize: 11.5),
                   ),
                   value: _usePoints,
@@ -352,6 +476,7 @@ class _DirectBookingSheetState extends State<DirectBookingSheet> {
                 decoration: BoxDecoration(
                   color: AppColors.surfaceBg,
                   borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.cardBorder),
                 ),
                 child: Column(
                   children: [
@@ -359,11 +484,158 @@ class _DirectBookingSheetState extends State<DirectBookingSheet> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          'Total Pembayaran ($_durationCount $_unitLabel)',
+                          'Subtotal Sewa ($_durationCount $_unitLabel)',
                           style: const TextStyle(
-                            fontSize: 13,
+                            fontSize: 12.5,
                             color: AppColors.textSecondary,
+                          ),
+                        ),
+                        Text(
+                          formatRupiah(_baseTotalAmount),
+                          style: const TextStyle(
+                            fontSize: 12.5,
                             fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_effectiveScheme == 'DP') ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Tagihan DP Sekarang (30%)',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              color: AppColors.primaryGreen,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          Text(
+                            formatRupiah(_payableRent),
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              color: AppColors.primaryGreen,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Sisa Pelunasan (saat Check-In)',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                          Text(
+                            formatRupiah(_remainingRent),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    if (_pointsDiscount > 0) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Potongan Poin Loyalti',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              color: AppColors.primaryGreen,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          Text(
+                            '-${formatRupiah(_pointsDiscount)}',
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              color: AppColors.primaryGreen,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        InkWell(
+                          onTap: () =>
+                              setState(() => _showFeeInfo = !_showFeeInfo),
+                          child: const Row(
+                            children: [
+                              Text(
+                                'Biaya Layanan & Transaksi',
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                              SizedBox(width: 4),
+                              Icon(
+                                Icons.info_outline,
+                                size: 14,
+                                color: AppColors.textSecondary,
+                              ),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          formatRupiah(_serviceFee),
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_showFeeInfo) ...[
+                      const SizedBox(height: 6),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.cardBorder),
+                        ),
+                        child: const Text(
+                          'Biaya layanan (min. Rp5.000 atau 2,5%) digunakan untuk biaya pemrosesan pembayaran & perlindungan Escrow. Biaya ini tidak terpotong oleh poin.',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: AppColors.textSecondary,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                    ],
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: Divider(height: 1),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          _effectiveScheme == 'DP'
+                              ? 'Total Bayar DP'
+                              : 'Total Bayar Sekarang',
+                          style: const TextStyle(
+                            fontSize: 13.5,
+                            color: AppColors.textPrimary,
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
                         Text(
@@ -390,6 +662,92 @@ class _DirectBookingSheetState extends State<DirectBookingSheet> {
                         ),
                       ),
                     ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.primaryGreen.withOpacity(0.06),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: AppColors.primaryGreen.withOpacity(0.25),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.verified_user_outlined,
+                          size: 15,
+                          color: AppColors.primaryGreen,
+                        ),
+                        SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Dilindungi Escrow: Dana ditahan aman dan baru diteruskan ke pemilik setelah Anda konfirmasi Check-In.',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: AppColors.textPrimary,
+                              height: 1.35,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (widget.kost.depositAmount > 0) ...[
+                      const SizedBox(height: 6),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(
+                            Icons.info_outline,
+                            size: 15,
+                            color: Color(0xFFD97706),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Info Deposit Keamanan: ${formatRupiah(widget.kost.depositAmount)} dibayar terpisah saat Check-In dan dikembalikan saat Check-Out jika tidak ada kerusakan.',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: AppColors.textPrimary,
+                                height: 1.35,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 6),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(
+                          Icons.bolt_outlined,
+                          size: 15,
+                          color: AppColors.primaryGreen,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            widget.kost.electricityIncluded
+                                ? 'Listrik: Sudah termasuk dalam harga sewa.'
+                                : 'Listrik: Belum termasuk harga sewa (dibayar terpisah sesuai pemakaian/token).',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: AppColors.textPrimary,
+                              height: 1.35,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),

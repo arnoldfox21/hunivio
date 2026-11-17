@@ -3577,13 +3577,24 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Booking ${b.durationCount} ${b.durationUnit == 'DAY' ? 'Hari' : (b.durationUnit == 'YEAR' ? 'Tahun' : 'Bulan')} • ${formatRupiah(b.totalAmount)}',
+                            'Booking ${b.durationCount} ${b.durationUnit == 'DAY' ? 'Hari' : (b.durationUnit == 'YEAR' ? 'Tahun' : 'Bulan')}${b.paymentScheme == 'DP' ? ' (DP 30%)' : ''} • ${formatRupiah(b.paidAmount > 0 ? b.paidAmount : b.totalAmount)}',
                             style: const TextStyle(
                               fontWeight: FontWeight.w700,
                               fontSize: 12.5,
                               color: AppColors.textPrimary,
                             ),
                           ),
+                          if (b.paymentScheme == 'DP' && b.remainingAmount > 0) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              'Sisa pelunasan saat Check-In: ${formatRupiah(b.remainingAmount)}',
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFFD97706),
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 2),
                           Text(
                             b.escrowStatus == 'HELD'
