@@ -1725,7 +1725,7 @@ class _KostDetailScreenState extends State<KostDetailScreen> {
                                 Text(
                                   (_ownerProfile?.bio.trim().isNotEmpty ?? false)
                                       ? _ownerProfile!.bio.trim()
-                                      : (kost.isVerified
+                                      : ((_ownerProfile?.isVerifiedAccount ?? kost.isVerified)
                                           ? 'Pemilik Terverifikasi • Lihat profil & postingan'
                                           : 'Pemilik Properti • Lihat profil & postingan'),
                                   maxLines: 2,
