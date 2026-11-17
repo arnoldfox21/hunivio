@@ -745,7 +745,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       _loadBookings();
                     }
                     final label = ApiService.isOnline
-                        ? 'Online (168.110.208.39:80)'
+                        ? 'Online (api.keyloka.com)'
                         : 'Lokal (192.168.18.12:3001)';
                     ScaffoldMessenger.of(this.context).showSnackBar(
                       SnackBar(

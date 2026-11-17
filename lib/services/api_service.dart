@@ -28,7 +28,7 @@ class PaginatedKostsResult {
 
 class ApiService {
   static const String localBaseUrl = 'http://192.168.18.12:3001/api';
-  static const String onlineBaseUrl = 'http://168.110.208.39:80/api';
+  static const String onlineBaseUrl = 'https://api.keyloka.com/api';
 
   static String _baseUrl = kReleaseMode ? onlineBaseUrl : localBaseUrl;
   static String? _authToken;
