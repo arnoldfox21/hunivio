@@ -1460,6 +1460,24 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                         ? (v) => setModalState(() => allowDirectBooking = v)
                         : null,
                   ),
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFECFDF5),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFA7F3D0)),
+                    ),
+                    child: const Text(
+                      'Ketentuan Fee Pemilik: Setiap transaksi Booking Langsung dikenakan potongan Biaya Platform 5% + Biaya Layanan & Payment Gateway 2,5% (min. Rp5.000) dari dana pemilik. Penyewa bebas biaya tambahan.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        height: 1.35,
+                        color: Color(0xFF065F46),
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 12),
                   SizedBox(
                     width: double.infinity,

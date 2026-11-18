@@ -33,6 +33,8 @@ class _DirectBookingSheetState extends State<DirectBookingSheet> {
   bool _showFeeInfo = false;
   bool _submitting = false;
 
+  String? _errorText;
+
   @override
   void initState() {
     super.initState();
@@ -105,7 +107,10 @@ class _DirectBookingSheetState extends State<DirectBookingSheet> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    setState(() => _submitting = true);
+    setState(() {
+      _submitting = true;
+      _errorText = null;
+    });
 
     try {
       final dateStr =
@@ -159,11 +164,15 @@ class _DirectBookingSheetState extends State<DirectBookingSheet> {
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() => _submitting = false);
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      setState(() {
+        _submitting = false;
+        _errorText = msg;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: AppColors.discountRed,
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          content: Text(msg),
         ),
       );
     }
@@ -748,6 +757,59 @@ class _DirectBookingSheetState extends State<DirectBookingSheet> {
                 ),
               ),
               const SizedBox(height: 14),
+              if (_errorText != null) ...[
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF2F2),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFFECACA)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _errorText!,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.discountRed,
+                        ),
+                      ),
+                      if (_errorText!.toLowerCase().contains('menunggu pembayaran') ||
+                          _errorText!.toLowerCase().contains('belum dibayar')) ...[
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          height: 34,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.discountRed,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            onPressed: () {
+                              Navigator.of(context).pop();
+                              widget.onCompleted();
+                            },
+                            child: const Text(
+                              'Tutup & Cek Sewa Saya',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
               SizedBox(
                 width: double.infinity,
                 height: 48,
