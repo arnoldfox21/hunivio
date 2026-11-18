@@ -88,12 +88,7 @@ class _DirectBookingSheetState extends State<DirectBookingSheet> {
   int get _pointsDiscount => _pointsUsedCount * 50;
   int get _netRentPayNow =>
       (_payableRent - _pointsDiscount).clamp(1000, _payableRent < 1000 ? 1000 : _payableRent);
-  int get _serviceFee {
-    final pctFee = (_netRentPayNow * 0.025).round();
-    return pctFee > 5000 ? pctFee : 5000;
-  }
-
-  int get _totalAmount => _netRentPayNow + _serviceFee;
+  int get _totalAmount => _netRentPayNow;
   int get _estimatedEarnedPoints => _netRentPayNow ~/ 10000;
 
   Future<void> _pickDate() async {
@@ -592,11 +587,12 @@ class _DirectBookingSheetState extends State<DirectBookingSheet> {
                             ],
                           ),
                         ),
-                        Text(
-                          formatRupiah(_serviceFee),
-                          style: const TextStyle(
+                        const Text(
+                          'Gratis',
+                          style: TextStyle(
                             fontSize: 12.5,
                             fontWeight: FontWeight.w600,
+                            color: AppColors.primaryGreen,
                           ),
                         ),
                       ],
@@ -612,7 +608,7 @@ class _DirectBookingSheetState extends State<DirectBookingSheet> {
                           border: Border.all(color: AppColors.cardBorder),
                         ),
                         child: const Text(
-                          'Biaya layanan (min. Rp5.000 atau 2,5%) digunakan untuk biaya pemrosesan pembayaran & perlindungan Escrow. Biaya ini tidak terpotong oleh poin.',
+                          'Gratis biaya layanan untuk penyewa. Seluruh biaya pemrosesan pembayaran & perlindungan Escrow ditanggung oleh pemilik properti.',
                           style: TextStyle(
                             fontSize: 11,
                             color: AppColors.textSecondary,

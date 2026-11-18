@@ -1443,19 +1443,23 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                     onChanged: (v) =>
                         setModalState(() => electricityIncluded = v),
                   ),
-                  if (widget.user.canApproveProperties)
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Izinkan Booking Langsung (Escrow)'),
-                      subtitle: const Text(
-                        'Khusus properti terverifikasi Admin/Staff',
-                        style: TextStyle(fontSize: 11.5),
-                      ),
-                      activeColor: AppColors.primaryGreen,
-                      value: allowDirectBooking,
-                      onChanged: (v) =>
-                          setModalState(() => allowDirectBooking = v),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Izinkan Booking Langsung (Escrow)'),
+                    subtitle: Text(
+                      widget.user.isVerifiedAccount
+                          ? 'Penyewa dapat langsung membayar booking via Midtrans'
+                          : 'Khusus pemilik terverifikasi. Verifikasi akun untuk mengaktifkan.',
+                      style: const TextStyle(fontSize: 11.5),
                     ),
+                    activeColor: AppColors.primaryGreen,
+                    value: widget.user.isVerifiedAccount
+                        ? allowDirectBooking
+                        : false,
+                    onChanged: widget.user.isVerifiedAccount
+                        ? (v) => setModalState(() => allowDirectBooking = v)
+                        : null,
+                  ),
                   const SizedBox(height: 12),
                   SizedBox(
                     width: double.infinity,
@@ -1520,7 +1524,7 @@ class _ManagePropertiesScreenState extends State<ManagePropertiesScreen>
                                       selectedPublicFacilities.toList(),
                                   'rules': splitCsv(rulesCtrl.text),
                                   'electricityIncluded': electricityIncluded,
-                                  if (widget.user.canApproveProperties)
+                                  if (widget.user.isVerifiedAccount)
                                     'allowDirectBooking': allowDirectBooking,
                                   if (pickedLocation != null) ...{
                                     'latitude': pickedLocation!.latitude,
